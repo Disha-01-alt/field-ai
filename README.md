@@ -167,10 +167,7 @@ field-ai/
 │   ├── train_layoutlm.py     # Multimodal LayoutLM fine-tuning pipeline
 │   └── visualize.py          # Benchmark plotting and SVG chart generation
 ├── notebooks/
-│   ├── FieldAI_Complete_Colab_Benchmark.ipynb # Master end-to-end executable notebook
-│   ├── 01_eda_and_baseline.ipynb              # Exploratory data analysis & baseline demo
-│   ├── 02_bert_finetuning.ipynb               # Text-only BERT model fine-tuning
-│   └── 03_layoutlm_finetuning.ipynb           # Multimodal LayoutLM fine-tuning
+│   └── FieldAI_Complete_Colab_Benchmark.ipynb # Master end-to-end executable Colab notebook
 └── results/                  # Serialized evaluation metrics and benchmark plots
     ├── bert_results.json     # Test evaluation results for BERT
     ├── layoutlm_results.json # Test evaluation results for LayoutLM
@@ -216,9 +213,13 @@ python src/baseline_regex.py --data_dir data/processed --output results/regex_ba
 ```
 
 ### Step 3: Train & Evaluate Transformer Models
-Training notebooks are ready for local or cloud GPU acceleration (Google Colab / Kaggle):
-- Open `notebooks/02_bert_finetuning.ipynb` for the 1D text baseline.
-- Open `notebooks/03_layoutlm_finetuning.ipynb` for the multimodal 2D layout model.
+The complete end-to-end benchmark is ready for 1-click execution in Google Colab (free T4 GPU):
+- Open and run [`notebooks/FieldAI_Complete_Colab_Benchmark.ipynb`](notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
+- Or run headlessly from the command line:
+  ```bash
+  python src/train_bert.py --epochs 5 --batch_size 8
+  python src/train_layoutlm.py --epochs 5 --batch_size 8
+  ```
 
 ### Step 4: Aggregate Metrics & Generate Comparative Analysis
 ```bash
