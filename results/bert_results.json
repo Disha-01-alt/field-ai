@@ -1,0 +1,31 @@
+{
+  "model": "BERT-base (Text Only)",
+  "modality": "1D Text Tokens",
+  "epochs": 5,
+  "test_size": 126,
+  "metrics": {
+    "company": {
+      "precision": 0.3613,
+      "recall": 0.3413,
+      "f1": 0.3510,
+      "support": 126
+    },
+    "date": {
+      "precision": 0.0714,
+      "recall": 0.0714,
+      "f1": 0.0714,
+      "support": 126
+    },
+    "total": {
+      "precision": 0.1840,
+      "recall": 0.1825,
+      "f1": 0.1833,
+      "support": 126
+    },
+    "macro_avg": {
+      "precision": 0.2056,
+      "recall": 0.1984,
+      "f1": 0.2019
+    }
+  }
+}
