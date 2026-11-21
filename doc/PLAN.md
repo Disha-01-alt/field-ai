@@ -117,12 +117,12 @@ Phase 2: Evaluation Metric & Regex Baseline
 └── Benchmark Baseline 1 on test split (populate Row 1 of results table)
       │
 Phase 3: BERT Text-Only Baseline
-├── Implement token classification training pipeline (notebooks/02_bert_finetuning.ipynb)
+├── Implement token classification training pipeline (src/train_bert.py / notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
 ├── Fine-tune bert-base-uncased on text tokens without coordinates
 └── Score on test split using metrics.py (populate Row 2 of results table)
       │
 Phase 4: LayoutLM Multimodal Implementation
-├── Implement LayoutLM pipeline with 2D box embeddings (notebooks/03_layoutlm_finetuning.ipynb)
+├── Implement LayoutLM pipeline with 2D box embeddings (src/train_layoutlm.py / notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
 ├── Fine-tune microsoft/layoutlm-base-uncased
 └── Score on test split using metrics.py (populate Row 3 of results table)
       │
@@ -165,7 +165,7 @@ Phase 5: Comparative Analysis & Report Synthesis
   - `TOTAL`: Regex `(?:TOTAL|AMOUNT DUE|NET)\s*[:\$]?\s*([0-9]+\.[0-9]{2})`.
   - `COMPANY`: Takes the topmost non-empty line of text.
 
-### Phase 3: BERT Text-Only (`notebooks/02_bert_finetuning.ipynb`)
+### Phase 3: BERT Text-Only (`src/train_bert.py` & Step 5 in `FieldAI_Complete_Colab_Benchmark.ipynb`)
 - Model: `AutoModelForTokenClassification.from_pretrained("bert-base-uncased")`.
 - Inputs: `input_ids`, `attention_mask`, `labels`.
 - Training parameters:
@@ -174,7 +174,7 @@ Phase 5: Comparative Analysis & Report Synthesis
   - Optimizer: AdamW with linear warmup
   - Epochs: 5–10 with early stopping on validation entity F1.
 
-### Phase 4: LayoutLM Multimodal (`notebooks/03_layoutlm_finetuning.ipynb`)
+### Phase 4: LayoutLM Multimodal (`src/train_layoutlm.py` & Step 6 in `FieldAI_Complete_Colab_Benchmark.ipynb`)
 - Model: `AutoModelForTokenClassification.from_pretrained("microsoft/layoutlm-base-uncased")`.
 - Inputs: `input_ids`, `bbox`, `attention_mask`, `token_type_ids`, `labels`.
 - Bounding box dimension: shape `(batch_size, sequence_length, 4)`.
