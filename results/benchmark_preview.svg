@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500" style="background-color: #FFFFFF; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+  <!-- Title -->
+  <text x="400.0" y="35" text-anchor="middle" font-size="20" font-weight="bold" fill="#1A1A1A">Field-Wise F1 Benchmark: Text vs. Layout</text>
+  <text x="400.0" y="55" text-anchor="middle" font-size="12" fill="#666666">ICDAR 2019 SROIE Dataset — Exact Entity Match Evaluation</text>
+  <line x1="70" y1="420.0" x2="750" y2="420.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="424.0" text-anchor="end" font-size="12" fill="#777777">0%</text>
+  <line x1="70" y1="352.0" x2="750" y2="352.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="356.0" text-anchor="end" font-size="12" fill="#777777">20%</text>
+  <line x1="70" y1="284.0" x2="750" y2="284.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="288.0" text-anchor="end" font-size="12" fill="#777777">40%</text>
+  <line x1="70" y1="216.0" x2="750" y2="216.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="220.0" text-anchor="end" font-size="12" fill="#777777">60%</text>
+  <line x1="70" y1="148.0" x2="750" y2="148.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="152.0" text-anchor="end" font-size="12" fill="#777777">80%</text>
+  <line x1="70" y1="80.0" x2="750" y2="80.0" stroke="#E0E0E0" stroke-width="1" stroke-dasharray="3,3" />
+  <text x="60" y="84.0" text-anchor="end" font-size="12" fill="#777777">100%</text>
+  <rect x="91.0" y="276.9" width="40.0" height="143.1" fill="#4A90E2" rx="4" />
+  <text x="111.0" y="270.9" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">42.1%</text>
+  <rect x="135.0" y="143.9" width="40.0" height="276.1" fill="#F5A623" rx="4" />
+  <text x="155.0" y="137.9" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">81.2%</text>
+  <rect x="179.0" y="100.1" width="40.0" height="319.9" fill="#7ED321" rx="4" />
+  <text x="199.0" y="94.1" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">94.1%</text>
+  <text x="155.0" y="445" text-anchor="middle" font-size="14" font-weight="bold" fill="#222222">Company</text>
+  <rect x="261.0" y="197.6" width="40.0" height="222.4" fill="#4A90E2" rx="4" />
+  <text x="281.0" y="191.6" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">65.4%</text>
+  <rect x="305.0" y="106.2" width="40.0" height="313.8" fill="#F5A623" rx="4" />
+  <text x="325.0" y="100.2" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">92.3%</text>
+  <rect x="349.0" y="96.3" width="40.0" height="323.7" fill="#7ED321" rx="4" />
+  <text x="369.0" y="90.3" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">95.2%</text>
+  <text x="325.0" y="445" text-anchor="middle" font-size="14" font-weight="bold" fill="#222222">Date</text>
+  <rect x="431.0" y="235.7" width="40.0" height="184.3" fill="#4A90E2" rx="4" />
+  <text x="451.0" y="229.7" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">54.2%</text>
+  <rect x="475.0" y="157.9" width="40.0" height="262.1" fill="#F5A623" rx="4" />
+  <text x="495.0" y="151.9" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">77.1%</text>
+  <rect x="519.0" y="104.5" width="40.0" height="315.5" fill="#7ED321" rx="4" />
+  <text x="539.0" y="98.5" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">92.8%</text>
+  <text x="495.0" y="445" text-anchor="middle" font-size="14" font-weight="bold" fill="#222222">Total</text>
+  <rect x="601.0" y="236.7" width="40.0" height="183.3" fill="#4A90E2" rx="4" />
+  <text x="621.0" y="230.7" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">53.9%</text>
+  <rect x="645.0" y="136.1" width="40.0" height="283.9" fill="#F5A623" rx="4" />
+  <text x="665.0" y="130.1" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">83.5%</text>
+  <rect x="689.0" y="100.4" width="40.0" height="319.6" fill="#7ED321" rx="4" />
+  <text x="709.0" y="94.4" text-anchor="middle" font-size="11" font-weight="600" fill="#333333">94.0%</text>
+  <text x="665.0" y="445" text-anchor="middle" font-size="14" font-weight="bold" fill="#222222">Macro Avg</text>
+  <rect x="130" y="463" width="16" height="16" fill="#4A90E2" rx="3" />
+  <text x="154" y="475" font-size="12" font-weight="500" fill="#333333">OCR + Regex</text>
+  <rect x="330" y="463" width="16" height="16" fill="#F5A623" rx="3" />
+  <text x="354" y="475" font-size="12" font-weight="500" fill="#333333">BERT (Text)</text>
+  <rect x="530" y="463" width="16" height="16" fill="#7ED321" rx="3" />
+  <text x="554" y="475" font-size="12" font-weight="500" fill="#333333">LayoutLM (Layout)</text>
+</svg>

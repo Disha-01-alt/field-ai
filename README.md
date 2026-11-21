@@ -118,16 +118,16 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 
 ## Experimental Results
 
-> *Evaluated on the frozen SROIE Task 3 test split using strict entity-level exact matching.*
+> *Evaluated on the frozen SROIE Task 3 test split (126 receipts) using strict entity-level exact matching.*
 
 | Model Paradigm | Input Modality | Company F1 | Date F1 | Total F1 | Overall Macro F1 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| **OCR + Regex** | Plain Text (Rules) | *Pending* | *Pending* | *Pending* | *Pending* |
-| **BERT-base** | 1D Text Tokens | *Pending* | *Pending* | *Pending* | *Pending* |
+| **OCR + Regex Baseline** | Plain Text (Rules) | 55.56% | 96.36% | 61.11% | **71.01%** |
+| **BERT-base** | 1D Text Tokens | *In Training* | *In Training* | *In Training* | *In Training* |
 | **LayoutLM-base** | Text + 2D Bounding Boxes | *Pending* | *Pending* | *Pending* | *Pending* |
 | **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+Pending** | **+Pending** | **+Pending** | **+Pending** |
 
-*(Results table will be populated upon execution of test splits across all three models.)*
+*(Results are actively updated as each model run completes on the frozen test split.)*
 
 ---
 
@@ -140,17 +140,20 @@ field-ai/
 ├── doc/
 │   └── PLAN.md               # Detailed architectural design and engineering execution plan
 ├── data/                     # Dataset storage (SROIE raw & processed, gitignored)
+│   ├── sroie/                # Raw SROIE box and key files
+│   └── processed/            # Frozen train.json and test.json splits
 ├── src/
-│   ├── ocr.py                # OCR inference and coordinate extraction
 │   ├── dataset.py            # Dataset loaders, coordinate normalization, BIO alignment
 │   ├── metrics.py            # Unified entity-level Precision/Recall/F1 evaluation engine
 │   ├── baseline_regex.py     # Deterministic OCR + Regex extraction baseline
-│   └── utils.py              # Bounding box utilities and visualization helpers
+│   ├── train_bert.py         # 1D text-only BERT fine-tuning pipeline
+│   ├── train_layoutlm.py     # Multimodal LayoutLM fine-tuning pipeline
+│   └── visualize.py          # Benchmark plotting and SVG chart generation
 ├── notebooks/
-│   ├── 01_eda_and_data_prep.ipynb   # Exploratory data analysis & token alignment validation
+│   ├── 01_eda_and_baseline.ipynb    # Exploratory data analysis & baseline demonstration
 │   ├── 02_bert_finetuning.ipynb     # Text-only BERT model fine-tuning & evaluation
 │   └── 03_layoutlm_finetuning.ipynb # Multimodal LayoutLM fine-tuning & ablation study
-└── results/                  # Serialized evaluation metrics, confusion matrices, and plots
+└── results/                  # Serialized evaluation metrics, benchmark SVGs, and plots
 ```
 
 ---
