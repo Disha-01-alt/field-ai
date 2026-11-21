@@ -14,10 +14,14 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+try:
+    from torch.optim import AdamW
+except ImportError:
+    from transformers import AdamW
+
 from transformers import (
     AutoTokenizer,
     AutoModelForTokenClassification,
-    AdamW,
     get_linear_schedule_with_warmup,
 )
 
