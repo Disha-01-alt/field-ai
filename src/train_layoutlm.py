@@ -9,7 +9,7 @@ import os
 import sys
 import json
 import argparse
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
 import torch
