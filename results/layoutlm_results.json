@@ -5,33 +5,79 @@
   "test_size": 126,
   "metrics": {
     "company": {
-      "precision": 0.3710,
-      "recall": 0.3651,
-      "f1": 0.3680,
+      "precision": 0.6303,
+      "recall": 0.5952,
+      "f1": 0.6122,
+      "tp": 75,
+      "fp": 44,
+      "fn": 51,
       "support": 126
     },
     "date": {
-      "precision": 0.0159,
-      "recall": 0.0159,
-      "f1": 0.0159,
+      "precision": 0.9841,
+      "recall": 0.9841,
+      "f1": 0.9841,
+      "tp": 124,
+      "fp": 2,
+      "fn": 2,
       "support": 126
     },
     "total": {
-      "precision": 0.1967,
-      "recall": 0.1905,
-      "f1": 0.1935,
+      "precision": 0.888,
+      "recall": 0.881,
+      "f1": 0.8845,
+      "tp": 111,
+      "fp": 14,
+      "fn": 15,
       "support": 126
     },
     "macro_avg": {
-      "precision": 0.1945,
-      "recall": 0.1905,
-      "f1": 0.1925
+      "precision": 0.8341,
+      "recall": 0.8201,
+      "f1": 0.8269
+    },
+    "micro_avg": {
+      "precision": 0.8378,
+      "recall": 0.8201,
+      "f1": 0.8289
     }
   },
   "delta_vs_bert": {
-    "company": 0.0170,
-    "date": -0.0555,
-    "total": 0.0102,
-    "macro_avg": -0.0094
+    "company": 0.0466,
+    "date": -0.008,
+    "total": 0.2958,
+    "macro_avg": 0.1115
+  },
+  "sample_predictions": {
+    "369": {
+      "company": "gardenia bakeries ( kl ) sdn bhd",
+      "date": "14/10/2017",
+      "total": "33.80",
+      "address": "lot 3,jalan pelabur 23/1,40300 shah alam,selangor."
+    },
+    "488": {
+      "company": "sanyu stationery shop",
+      "date": "06/09/2017",
+      "total": "8.70",
+      "address": "no.31g & 33g,jalan setia indah x,u13/x 40170 setia alam"
+    },
+    "001": {
+      "company": "",
+      "date": "19/10/2018",
+      "total": "55.90",
+      "address": "ind"
+    },
+    "232": {
+      "company": "premio stationery sdn bhd",
+      "date": "08/02/2017",
+      "total": "25.44",
+      "address": "dataran glomac.kelana jaya 47301 petaling jaya.selangor"
+    },
+    "580": {
+      "company": "mr.d.i.y.( kuchai ) sdn bhd",
+      "date": "25-06-18",
+      "total": "17.45",
+      "address": "lot 1851"
+    }
   }
 }

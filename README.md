@@ -124,9 +124,9 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 | Model Paradigm | Input Modality | Company F1 | Date F1 | Total F1 | Overall Macro F1 |
 |:---|:---|:---:|:---:|:---:|:---:|
 | **OCR + Regex Baseline** | Plain Text (Rules) | 55.56% | 96.36% | 61.11% | **71.01%** |
-| **BERT-base** | 1D Text Tokens | 35.10% | 7.14% | 18.33% | **20.19%** |
-| **LayoutLM-base** | Text + 2D Bounding Boxes | 36.80% | 1.59% | 19.35% | **19.25%** |
-| **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+1.70%** | **-5.55%** | **+1.02%** | **-0.94%** |
+| **BERT-base** | 1D Text Tokens | 56.56% | 99.21% | 58.87% | **71.54%** |
+| **LayoutLM-base** | Text + 2D Bounding Boxes | 61.22% | 98.41% | 88.45% | **82.69%** |
+| **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+4.66%** | **-0.80%** | **+29.58%** | **+11.15%** |
 
 <p align="center">
   <img src="results/f1_comparison.svg" alt="Field-Wise Benchmark Comparison Chart" width="750"/>
@@ -134,17 +134,19 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 
 ### Analysis & Key Empirical Insights
 
-#### 1. Spatial Inductive Bias on Anchored Fields (Company & Total)
-- **Company Name ($\Delta F1 = +1.70\%$, reaching up to $+12.79\%$ across runs)**:
-  Merchant names consistently show positive performance gains when incorporating 2D layout coordinates. Receipts typically place store headers prominently within the top vertical band ($y_0, y_1 \le 200$). While 1D text models frequently mistake address lines or category headers for merchant names, LayoutLM's vertical coordinate embeddings ($y$-axis) provide an inductive bias that anchors the entity search to the header region.
-- **Grand Total ($\Delta F1 = +1.02\%$)**:
-  Total amounts also benefit from spatial grounding. In receipts, monetary values appear in multiple contexts (subtotals, unit prices, tax/GST, cash tendered, change). The grand total almost universally resides near the bottom-right of the receipt layout. Adding 2D spatial coordinate embeddings allows the attention mechanism to associate decimal values with the bottom right quadrant.
+The central research question — *how much does 2D layout add over text alone?* — is answered cleanly here: **LayoutLM improves overall Macro F1 by +11.15 points over the text-only BERT baseline (82.69% vs. 71.54%)**, and is the only model to clearly beat the zero-learning OCR+Regex baseline (71.01%). The gain, however, is highly field-dependent.
 
-#### 2. The Heuristic Rule Baseline vs. Deep Sequence Labeling
-- **Date Extraction ($96.36\%$ Regex vs. $7.14\%$ BERT)**:
-  Dates in commercial receipts adhere to rigid alphanumeric syntactic conventions (`DD/MM/YYYY`, `YYYY-MM-DD`). Deterministic regular expressions match these exact character patterns with near-perfect precision and recall. Conversely, token-level sequence classification models fine-tuned on small datasets (500 samples) without character-level syntactic priors require exact token span predictions; any minor subword boundary mismatch results in a strict exact-match zero score.
-- **Brittleness of Rules on Company and Total**:
-  While regex excels on dates, it falters on `Company` (55.56%) and `Total` (61.11%) due to real-world visual layout noise (tax invoice titles, multi-line headers, subtotal confusion). Transformers demonstrate learned adaptability without hardcoded regular expressions.
+#### 1. Grand Total is where layout decisively wins ($\Delta F1 = +29.58\%$)
+This is the headline result and a direct confirmation of the LayoutLM hypothesis. A receipt contains many monetary values — line-item prices, subtotals, tax/GST, cash tendered, change — that are **textually indistinguishable** from the grand total. The text-only model cannot reliably tell them apart (BERT: 58.87% F1, close to the regex baseline). LayoutLM, however, learns that the grand total almost universally sits in the **bottom-right region** of the layout; its 2D coordinate embeddings supply exactly the spatial inductive bias needed to disambiguate it, lifting Total F1 to **88.45%**.
+
+#### 2. Company name sees a modest spatial gain ($\Delta F1 = +4.66\%$)
+Merchant names are anchored to the **top vertical band** of the receipt. LayoutLM's $y$-coordinate embeddings help it avoid confusing headers with address or category lines, yielding a smaller but consistent improvement (56.56% → 61.22%). The gain is less dramatic than Total because the store name is often already the most salient top-of-document text, which the 1D model partially captures from sequence order alone.
+
+#### 3. Date gains nothing from layout ($\Delta F1 = -0.80\%$)
+Dates follow **rigid alphanumeric syntax** (`DD/MM/YYYY`, `YYYY-MM-DD`) that is fully recoverable from text alone. Both transformers essentially saturate the field (BERT 99.21%, LayoutLM 98.41%), and the hand-written regex baseline is already near-perfect (96.36%). Spatial position carries no additional signal for a field this syntactically self-identifying — the sub-1% delta is within run-to-run noise. This is the expected negative control that makes the Total result credible: layout helps precisely where text is ambiguous, and not where it isn't.
+
+#### 4. Rule baseline vs. learned models
+The OCR+Regex baseline remains a strong, training-free competitor on Date (96.36%) but is brittle on Company (55.56%) and Total (61.11%) due to real-world layout noise (tax-invoice titles, multi-line headers, subtotal confusion). BERT matches it overall (71.54% vs. 71.01%) using learned sequence patterns instead of hardcoded rules, and LayoutLM surpasses it by exploiting the one signal regex cannot encode: 2D position.
 
 ---
 
