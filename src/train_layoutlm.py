@@ -250,87 +250,104 @@ def split_train_validation(
 # 5. TOKENIZATION AND SUBWORD ALIGNMENT
 # ============================================================
 
+
 class ReceiptDataset(Dataset):
 
-    def __init__(
-        self,
-        samples,
-        tokenizer,
-        max_length=512,
-    ):
-
-        self.samples = samples
-        self.tokenizer = tokenizer
-        self.max_length = max_length
+    def __init__(self, samples, tokenizer, max_length=512):
 
         self.features = []
 
-        for sample in samples:
+        for sample in tqdm(samples, desc="Tokenizing receipts"):
 
             validate_sample(sample)
 
             words = sample["words"]
-            boxes = sample["bboxes"]
-            word_labels = sample["ner_tags"]
+            boxes = get_boxes(sample)
+            word_labels = [int(x) for x in sample["ner_tags"]]
 
-            encoding = tokenizer(
-                words,
-                boxes=boxes,
-                is_split_into_words=True,
-                truncation=True,
-                max_length=max_length,
-                padding=False,
-                return_attention_mask=True,
-            )
+            input_ids = [tokenizer.cls_token_id]
+            attention_mask = [1]
+            aligned_boxes = [[0, 0, 0, 0]]
+            aligned_labels = [-100]
 
-            # Maps each subword token back to its original word.
-            word_ids = encoding.word_ids()
-
-            aligned_labels = []
             first_subword_positions = []
+            retained_word_labels = []
 
-            previous_word_id = None
+            # Tokenize each original OCR word independently.
+            for word_index, (word, box, label) in enumerate(
+                zip(words, boxes, word_labels)
+            ):
 
-            for token_position, word_id in enumerate(word_ids):
+                word_tokens = tokenizer.tokenize(str(word))
 
-                if word_id is None:
+                if not word_tokens:
+                    continue
 
-                    aligned_labels.append(-100)
+                word_token_ids = tokenizer.convert_tokens_to_ids(
+                    word_tokens
+                )
 
-                elif word_id != previous_word_id:
+                # Reserve one position for [SEP].
+                available = max_length - len(input_ids) - 1
 
-                    # Only the first subword receives the word label.
-                    aligned_labels.append(
-                        word_labels[word_id]
-                    )
+                if available <= 0:
+                    break
 
-                    first_subword_positions.append(
-                        (token_position, word_id)
-                    )
+                # Do not partially include a word.
+                if len(word_token_ids) > available:
+                    break
 
-                else:
+                box = [int(x) for x in box]
 
-                    # Ignore continuation subwords during loss calculation.
-                    aligned_labels.append(-100)
+                # Index into the compact list of retained words.
+                compact_word_index = len(retained_word_labels)
 
-                previous_word_id = word_id
+                # Remember the first subword's token position.
+                first_subword_positions.append(
+                    (len(input_ids), compact_word_index)
+                )
+
+                retained_word_labels.append(label)
+
+                for subword_index, token_id in enumerate(word_token_ids):
+
+                    input_ids.append(token_id)
+                    attention_mask.append(1)
+                    aligned_boxes.append(box)
+
+                    if subword_index == 0:
+                        aligned_labels.append(label)
+                    else:
+                        aligned_labels.append(-100)
+
+            # Add [SEP].
+            input_ids.append(tokenizer.sep_token_id)
+            attention_mask.append(1)
+            aligned_boxes.append([0, 0, 0, 0])
+            aligned_labels.append(-100)
+
+            if not first_subword_positions:
+                raise ValueError(
+                    f"No words tokenized in document {sample['id']}"
+                )
+
+            assert len(input_ids) == len(aligned_boxes)
+            assert len(input_ids) == len(aligned_labels)
+
+            # Verify that entity labels survived tokenization.
+            if not any(label != 0 for label in retained_word_labels):
+                raise ValueError(
+                    f"All labels became O in document {sample['id']}"
+                )
 
             self.features.append({
-
-                "input_ids": encoding["input_ids"],
-
-                "attention_mask": encoding["attention_mask"],
-
-                "bbox": encoding["bbox"],
-
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "bbox": aligned_boxes,
                 "labels": aligned_labels,
-
                 "first_subword_positions": first_subword_positions,
-
+                "original_word_labels": retained_word_labels,
                 "document_id": sample["id"],
-
-                "original_word_labels": word_labels,
-
             })
 
     def __len__(self):
