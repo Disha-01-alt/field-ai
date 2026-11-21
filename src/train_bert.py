@@ -52,14 +52,23 @@ class SROIETokenDataset(Dataset):
             subword_ids = self.tokenizer.convert_tokens_to_ids(subwords)
             label_id = LABEL2ID.get(tag, 0)
 
+            # Assign I-tag to continuation subwords so the full entity span is learned
+            if tag.startswith("B-"):
+                cont_tag = "I-" + tag[2:]
+                cont_id = LABEL2ID.get(cont_tag, label_id)
+            elif tag.startswith("I-"):
+                cont_id = label_id
+            else:
+                cont_id = 0
+
             # First subword gets the actual label
             input_ids.append(subword_ids[0])
             labels.append(label_id)
 
-            # Continuation subwords get ignore index -100
+            # Continuation subwords get the continuation tag
             for sw_id in subword_ids[1:]:
                 input_ids.append(sw_id)
-                labels.append(-100)
+                labels.append(cont_id)
 
             if len(input_ids) >= self.max_length - 1:
                 break
@@ -92,9 +101,29 @@ class SROIETokenDataset(Dataset):
         return self.encoded_samples[idx]
 
 
+def reassemble_token_sequence(tokens: List[str], tokenizer=None) -> str:
+    """Reassemble WordPiece tokens into a natural string with proper punctuation."""
+    if tokenizer and hasattr(tokenizer, "convert_tokens_to_string"):
+        text = tokenizer.convert_tokens_to_string(tokens).strip()
+    else:
+        out = []
+        for t in tokens:
+            if t.startswith("##"):
+                if out:
+                    out[-1] += t[2:]
+                else:
+                    out.append(t[2:])
+            else:
+                out.append(t)
+        text = " ".join(out)
+    text = re.sub(r"\s*([/\-\.:,])\s*", r"\1", text)
+    return text.strip()
+
+
 def extract_entities_from_tokens(
     tokens: List[str],
     predicted_label_ids: List[int],
+    tokenizer=None,
 ) -> Dict[str, str]:
     """Reconstruct entity strings from predicted BIO tags."""
     extracted = {"company": "", "date": "", "total": "", "address": ""}
@@ -102,7 +131,7 @@ def extract_entities_from_tokens(
     current_tokens = []
 
     for token, label_id in zip(tokens, predicted_label_ids):
-        if label_id == -100:
+        if label_id == -100 or token in ("[CLS]", "[SEP]", "[PAD]"):
             continue
         tag = ID2LABEL.get(label_id, "O")
 
@@ -110,7 +139,7 @@ def extract_entities_from_tokens(
             if current_entity and current_tokens:
                 field = current_entity.lower()
                 if field in extracted and not extracted[field]:
-                    extracted[field] = " ".join(current_tokens)
+                    extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
             current_entity = tag[2:]
             current_tokens = [token]
         elif tag.startswith("I-") and current_entity and tag[2:] == current_entity:
@@ -119,18 +148,14 @@ def extract_entities_from_tokens(
             if current_entity and current_tokens:
                 field = current_entity.lower()
                 if field in extracted and not extracted[field]:
-                    extracted[field] = " ".join(current_tokens)
+                    extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
             current_entity = None
             current_tokens = []
 
     if current_entity and current_tokens:
         field = current_entity.lower()
         if field in extracted and not extracted[field]:
-            extracted[field] = " ".join(current_tokens)
-
-    # Clean up WordPiece artifacts (e.g. "##")
-    for k in extracted:
-        extracted[k] = extracted[k].replace(" ##", "").replace("##", "").strip()
+            extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
 
     return extracted
 
@@ -200,35 +225,26 @@ def train_bert(
         avg_loss = total_loss / len(train_loader)
         print(f"Epoch {epoch + 1}/{epochs} - Average Loss: {avg_loss:.4f}")
 
-    # Evaluation
+    # Evaluation using batch test loader
     print("Evaluating on test set...")
     model.eval()
     predictions = {}
     ground_truths = {item["id"]: item["entities"] for item in test_data}
 
     with torch.no_grad():
-        for item in test_data:
-            doc_id = item["id"]
-            words = item["words"]
-            tokens = []
-            for w in words:
-                subwords = tokenizer.tokenize(w)
-                if subwords:
-                    tokens.extend(subwords)
+        for batch in test_loader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            doc_ids = batch["doc_id"]
 
-            enc = tokenizer(
-                " ".join(words),
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-            ).to(device)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            preds = torch.argmax(outputs.logits, dim=2).cpu().tolist()
 
-            logits = model(**enc).logits
-            preds = torch.argmax(logits, dim=2)[0].cpu().tolist()
-            token_list = tokenizer.convert_ids_to_tokens(enc["input_ids"][0])
-
-            extracted = extract_entities_from_tokens(token_list, preds)
-            predictions[doc_id] = extracted
+            for i, doc_id in enumerate(doc_ids):
+                token_list = tokenizer.convert_ids_to_tokens(input_ids[i])
+                pred_tags = preds[i]
+                extracted = extract_entities_from_tokens(token_list, pred_tags, tokenizer)
+                predictions[doc_id] = extracted
 
     metrics = compute_field_metrics(predictions, ground_truths)
 

@@ -54,6 +54,15 @@ class SROIELayoutDataset(Dataset):
             subword_ids = self.tokenizer.convert_tokens_to_ids(subwords)
             label_id = LABEL2ID.get(tag, 0)
 
+            # Assign I-tag to continuation subwords so the full entity span is learned
+            if tag.startswith("B-"):
+                cont_tag = "I-" + tag[2:]
+                cont_id = LABEL2ID.get(cont_tag, label_id)
+            elif tag.startswith("I-"):
+                cont_id = label_id
+            else:
+                cont_id = 0
+
             # Clamp coordinates to [0, 1000]
             clamped_box = [min(1000, max(0, c)) for c in box]
 
@@ -62,11 +71,11 @@ class SROIELayoutDataset(Dataset):
             boxes.append(clamped_box)
             labels.append(label_id)
 
-            # Continuation subwords get parent bbox and ignore index -100
+            # Continuation subwords get parent bbox and continuation tag
             for sw_id in subword_ids[1:]:
                 input_ids.append(sw_id)
                 boxes.append(clamped_box)
-                labels.append(-100)
+                labels.append(cont_id)
 
             if len(input_ids) >= self.max_length - 1:
                 break
@@ -106,9 +115,29 @@ class SROIELayoutDataset(Dataset):
         return self.encoded_samples[idx]
 
 
+def reassemble_token_sequence(tokens: List[str], tokenizer=None) -> str:
+    """Reassemble WordPiece tokens into a natural string with proper punctuation."""
+    if tokenizer and hasattr(tokenizer, "convert_tokens_to_string"):
+        text = tokenizer.convert_tokens_to_string(tokens).strip()
+    else:
+        out = []
+        for t in tokens:
+            if t.startswith("##"):
+                if out:
+                    out[-1] += t[2:]
+                else:
+                    out.append(t[2:])
+            else:
+                out.append(t)
+        text = " ".join(out)
+    text = re.sub(r"\s*([/\-\.:,])\s*", r"\1", text)
+    return text.strip()
+
+
 def extract_entities_from_layout_tokens(
     tokens: List[str],
     predicted_label_ids: List[int],
+    tokenizer=None,
 ) -> Dict[str, str]:
     """Reconstruct entity strings from predicted LayoutLM BIO tags."""
     extracted = {"company": "", "date": "", "total": "", "address": ""}
@@ -116,7 +145,7 @@ def extract_entities_from_layout_tokens(
     current_tokens = []
 
     for token, label_id in zip(tokens, predicted_label_ids):
-        if label_id == -100:
+        if label_id == -100 or token in ("[CLS]", "[SEP]", "[PAD]"):
             continue
         tag = ID2LABEL.get(label_id, "O")
 
@@ -124,7 +153,7 @@ def extract_entities_from_layout_tokens(
             if current_entity and current_tokens:
                 field = current_entity.lower()
                 if field in extracted and not extracted[field]:
-                    extracted[field] = " ".join(current_tokens)
+                    extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
             current_entity = tag[2:]
             current_tokens = [token]
         elif tag.startswith("I-") and current_entity and tag[2:] == current_entity:
@@ -133,17 +162,14 @@ def extract_entities_from_layout_tokens(
             if current_entity and current_tokens:
                 field = current_entity.lower()
                 if field in extracted and not extracted[field]:
-                    extracted[field] = " ".join(current_tokens)
+                    extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
             current_entity = None
             current_tokens = []
 
     if current_entity and current_tokens:
         field = current_entity.lower()
         if field in extracted and not extracted[field]:
-            extracted[field] = " ".join(current_tokens)
-
-    for k in extracted:
-        extracted[k] = extracted[k].replace(" ##", "").replace("##", "").strip()
+            extracted[field] = reassemble_token_sequence(current_tokens, tokenizer)
 
     return extracted
 
@@ -246,7 +272,7 @@ def train_layoutlm(
             for i, doc_id in enumerate(doc_ids):
                 token_list = tokenizer.convert_ids_to_tokens(input_ids[i])
                 pred_tags = preds[i]
-                extracted = extract_entities_from_layout_tokens(token_list, pred_tags)
+                extracted = extract_entities_from_layout_tokens(token_list, pred_tags, tokenizer)
                 predictions[doc_id] = extracted
 
     metrics = compute_field_metrics(predictions, ground_truths)
