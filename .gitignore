@@ -15,10 +15,8 @@ env/
 .ipynb_checkpoints/
 
 # --- Data & models (too large / regenerated) ---
-data/
-datasets/
-*.zip
-*.tar.gz
+data/sroie/
+data/raw/
 models/
 checkpoints/
 *.pt

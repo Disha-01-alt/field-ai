@@ -5,6 +5,7 @@
 [![HuggingFace Transformers](https://img.shields.io/badge/%F0%9F%A4%97-Transformers-yellow)](https://huggingface.co/transformers/)
 [![Dataset: SROIE 2019](https://img.shields.io/badge/Dataset-ICDAR_2019_SROIE-green.svg)](https://rrc.cvc.uab.es/?ch=13)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Disha-01-alt/field-ai/blob/main/notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
 
 A deep learning benchmark investigating the impact of **2D spatial layout representations** on key information extraction (KIE) from scanned receipts and invoices.
 
