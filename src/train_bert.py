@@ -6,6 +6,7 @@ WordPiece tokens without any 2D bounding-box spatial coordinates.
 """
 
 import os
+import re
 import sys
 import json
 import argparse
