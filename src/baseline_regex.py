@@ -217,63 +217,96 @@ def load_lines_from_box_file(file_path: str) -> List[Tuple[str, List[int]]]:
 
 def run_baseline_evaluation(
     data_dir: str = "data/sroie",
+    processed_test_file: str = "data/processed/test.json",
     output_path: str = "results/regex_baseline.json",
     test_ratio: float = 0.2,
     seed: int = 42,
 ) -> Dict[str, Any]:
     """
     Evaluate the regex baseline on the SROIE test split.
+    Automatically uses data/processed/test.json if available,
+    or falls back to raw data/sroie directory.
     """
-    import random
-    random.seed(seed)
-
-    data_path = Path(data_dir)
-    box_files = sorted(data_path.glob("**/box/*.csv")) or sorted(data_path.glob("**/box/*.txt"))
-    
-    # Pair with ground truth keys
-    paired_docs = []
-    for bf in box_files:
-        stem = bf.stem
-        key_candidates = [
-            bf.parent.parent / "key" / f"{stem}.json",
-            bf.parent / f"{stem}.json",
-        ]
-        key_file = next((k for k in key_candidates if k.exists()), None)
-        if key_file:
-            with open(key_file, "r", encoding="utf-8", errors="ignore") as f:
-                try:
-                    gt = json.load(f)
-                    paired_docs.append((bf, gt))
-                except Exception:
-                    continue
-
-    print(f"Total valid paired documents: {len(paired_docs)}")
-    if not paired_docs:
-        print("Error: No paired documents found.")
-        return {}
-
-    # Split into train / test deterministically
-    random.shuffle(paired_docs)
-    split_idx = int(len(paired_docs) * (1 - test_ratio))
-    test_docs = paired_docs[split_idx:]
-    print(f"Evaluating Baseline 1 on test set of {len(test_docs)} documents...")
-
     predictions = {}
     ground_truths = {}
 
-    for bf, gt in test_docs:
-        doc_id = bf.stem
-        lines_with_boxes = load_lines_from_box_file(str(bf))
-        pred = RegexReceiptExtractor.extract_fields(lines_with_boxes)
-        predictions[doc_id] = pred
-        ground_truths[doc_id] = gt
+    # Prefer preprocessed test.json if present
+    if os.path.exists(processed_test_file):
+        print(f"Loading test split from {processed_test_file}...")
+        with open(processed_test_file, "r", encoding="utf-8") as f:
+            test_data = json.load(f)
+
+        print(f"Evaluating Baseline 1 on {len(test_data)} test receipts...")
+        for item in test_data:
+            doc_id = item["id"]
+            # Group words sharing identical or near bounding boxes into coherent lines
+            lines = []
+            curr_box = None
+            curr_words = []
+            for w, b in zip(item["words"], item["bboxes"]):
+                if curr_box is None:
+                    curr_box = b
+                    curr_words = [w]
+                elif b == curr_box:
+                    curr_words.append(w)
+                else:
+                    lines.append((" ".join(curr_words), curr_box))
+                    curr_box = b
+                    curr_words = [w]
+            if curr_words:
+                lines.append((" ".join(curr_words), curr_box))
+
+            pred = RegexReceiptExtractor.extract_fields(lines)
+            predictions[doc_id] = pred
+            ground_truths[doc_id] = item["entities"]
+
+    else:
+        import random
+        random.seed(seed)
+
+        data_path = Path(data_dir)
+        box_files = sorted(data_path.glob("**/box/*.csv")) or sorted(data_path.glob("**/box/*.txt"))
+        
+        # Pair with ground truth keys
+        paired_docs = []
+        for bf in box_files:
+            stem = bf.stem
+            key_candidates = [
+                bf.parent.parent / "key" / f"{stem}.json",
+                bf.parent / f"{stem}.json",
+            ]
+            key_file = next((k for k in key_candidates if k.exists()), None)
+            if key_file:
+                with open(key_file, "r", encoding="utf-8", errors="ignore") as f:
+                    try:
+                        gt = json.load(f)
+                        paired_docs.append((bf, gt))
+                    except Exception:
+                        continue
+
+        print(f"Total valid paired documents: {len(paired_docs)}")
+        if not paired_docs:
+            print("Error: No paired documents found.")
+            return {}
+
+        random.shuffle(paired_docs)
+        split_idx = int(len(paired_docs) * (1 - test_ratio))
+        test_docs = paired_docs[split_idx:]
+        print(f"Evaluating Baseline 1 on test set of {len(test_docs)} documents...")
+
+        for bf, gt in test_docs:
+            doc_id = bf.stem
+            lines_with_boxes = load_lines_from_box_file(str(bf))
+            pred = RegexReceiptExtractor.extract_fields(lines_with_boxes)
+            predictions[doc_id] = pred
+            ground_truths[doc_id] = gt
 
     metrics = compute_field_metrics(predictions, ground_truths)
     
     output_data = {
         "model": "OCR + Regex Baseline",
         "modality": "Plain Text (Rules)",
-        "test_size": len(test_docs),
+        "test_size": len(predictions),
         "metrics": metrics,
         "sample_predictions": {k: predictions[k] for k in list(predictions.keys())[:5]},
     }
