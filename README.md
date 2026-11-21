@@ -128,6 +128,10 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 | **LayoutLM-base** | Text + 2D Bounding Boxes | 36.80% | 1.59% | 19.35% | **19.25%** |
 | **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+1.70%** | **-5.55%** | **+1.02%** | **-0.94%** |
 
+<p align="center">
+  <img src="results/f1_comparison.svg" alt="Field-Wise Benchmark Comparison Chart" width="750"/>
+</p>
+
 ### Analysis & Key Empirical Insights
 
 #### 1. Spatial Inductive Bias on Anchored Fields (Company & Total)
@@ -153,7 +157,7 @@ field-ai/
 ├── doc/
 │   └── PLAN.md               # Detailed architectural design and engineering execution plan
 ├── data/                     # Dataset storage (SROIE raw & processed, gitignored)
-│   ├── sroie/                # Raw SROIE box and key files
+│   ├── sroie/                # Raw SROIE box and key files (gitignored)
 │   └── processed/            # Frozen train.json and test.json splits
 ├── src/
 │   ├── dataset.py            # Dataset loaders, coordinate normalization, BIO alignment
@@ -163,10 +167,15 @@ field-ai/
 │   ├── train_layoutlm.py     # Multimodal LayoutLM fine-tuning pipeline
 │   └── visualize.py          # Benchmark plotting and SVG chart generation
 ├── notebooks/
-│   ├── 01_eda_and_baseline.ipynb    # Exploratory data analysis & baseline demonstration
-│   ├── 02_bert_finetuning.ipynb     # Text-only BERT model fine-tuning & evaluation
-│   └── 03_layoutlm_finetuning.ipynb # Multimodal LayoutLM fine-tuning & ablation study
-└── results/                  # Serialized evaluation metrics, benchmark SVGs, and plots
+│   ├── FieldAI_Complete_Colab_Benchmark.ipynb # Master end-to-end executable notebook
+│   ├── 01_eda_and_baseline.ipynb              # Exploratory data analysis & baseline demo
+│   ├── 02_bert_finetuning.ipynb               # Text-only BERT model fine-tuning
+│   └── 03_layoutlm_finetuning.ipynb           # Multimodal LayoutLM fine-tuning
+└── results/                  # Serialized evaluation metrics and benchmark plots
+    ├── bert_results.json     # Test evaluation results for BERT
+    ├── layoutlm_results.json # Test evaluation results for LayoutLM
+    ├── regex_baseline.json   # Test evaluation results for OCR+Regex
+    └── f1_comparison.svg     # Benchmark visualization vector chart
 ```
 
 ---
