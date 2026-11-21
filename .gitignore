@@ -1,0 +1,34 @@
+# --- Claude / agent artifacts (never commit) ---
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.claude/
+.claude-mem/
+*.claude-trace*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# --- Data & models (too large / regenerated) ---
+data/
+datasets/
+*.zip
+*.tar.gz
+models/
+checkpoints/
+*.pt
+*.bin
+*.safetensors
+outputs/
+runs/
+wandb/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
