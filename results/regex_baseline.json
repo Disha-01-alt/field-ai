@@ -4,12 +4,12 @@
   "test_size": 126,
   "metrics": {
     "company": {
-      "precision": 0.5556,
-      "recall": 0.5556,
-      "f1": 0.5556,
-      "tp": 70,
-      "fp": 56,
-      "fn": 56,
+      "precision": 0.4603,
+      "recall": 0.4603,
+      "f1": 0.4603,
+      "tp": 58,
+      "fp": 68,
+      "fn": 68,
       "support": 126
     },
     "date": {
@@ -22,43 +22,43 @@
       "support": 126
     },
     "total": {
-      "precision": 0.6111,
-      "recall": 0.6111,
-      "f1": 0.6111,
-      "tp": 77,
-      "fp": 49,
-      "fn": 49,
+      "precision": 0.4048,
+      "recall": 0.4048,
+      "f1": 0.4048,
+      "tp": 51,
+      "fp": 75,
+      "fn": 75,
       "support": 126
     },
     "macro_avg": {
-      "precision": 0.7167,
-      "recall": 0.7037,
-      "f1": 0.7101
+      "precision": 0.6162,
+      "recall": 0.6032,
+      "f1": 0.6095
     },
     "micro_avg": {
-      "precision": 0.7131,
-      "recall": 0.7037,
-      "f1": 0.7084
+      "precision": 0.6113,
+      "recall": 0.6032,
+      "f1": 0.6072
     }
   },
   "sample_predictions": {
     "369": {
-      "company": "GARDENIA BAKERIES (KL) SDN BHD (139386 X)",
+      "company": "MAKASSAR FRESH MARKET SDN BHD",
       "date": "14/10/2017",
-      "total": "33.80"
+      "total": "18.54"
     },
     "488": {
-      "company": "SANYU STATIONERY SHOP",
+      "company": "OWNED BY : SANYU SUPPLY SDN BHD (1135772-K) CASH SALES COUNTER",
       "date": "06/09/2017",
-      "total": "0.49"
+      "total": "6.00"
     },
     "001": {
-      "company": "TAN WOON YANN",
+      "company": "TAMAN JOHOR JAYA, 81100 JOHOR BAHRU,JOHOR. TEL:07-3507405",
       "date": "19/10/2018",
-      "total": "60.31"
+      "total": "2.00"
     },
     "232": {
-      "company": "PREMIO",
+      "company": "PREMIO PREMIO STATIONERY SDN BHD",
       "date": "08/02/2017",
       "total": "6.00"
     },
