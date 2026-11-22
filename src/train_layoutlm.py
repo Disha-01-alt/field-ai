@@ -26,6 +26,7 @@ import os
 import json
 import random
 import numpy as np
+from tqdm.auto import tqdm
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -249,6 +250,11 @@ def split_train_validation(
 # ============================================================
 # 5. TOKENIZATION AND SUBWORD ALIGNMENT
 # ============================================================
+
+
+def get_boxes(sample):
+    """Per-word bounding boxes, already normalized to [0, 1000] by dataset.py."""
+    return sample["bboxes"]
 
 
 class ReceiptDataset(Dataset):
