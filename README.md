@@ -119,14 +119,14 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 
 ## Experimental Results
 
-> *Evaluated on the frozen SROIE Task 3 test split (126 receipts) using strict entity-level exact matching.*
+> *Evaluated on the frozen SROIE Task 3 test split (126 receipts). All three models are decoded to field strings and scored by the same `metrics.py` harness (field-level exact match with light normalization), so the comparison is apples-to-apples.*
 
 | Model Paradigm | Input Modality | Company F1 | Date F1 | Total F1 | Overall Macro F1 |
 |:---|:---|:---:|:---:|:---:|:---:|
-| **OCR + Regex Baseline** | Plain Text (Rules) | 55.56% | 96.36% | 61.11% | **71.01%** |
-| **BERT-base** | 1D Text Tokens | 56.56% | 99.21% | 58.87% | **71.54%** |
-| **LayoutLM-base** | Text + 2D Bounding Boxes | 61.22% | 98.41% | 88.45% | **82.69%** |
-| **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+4.66%** | **-0.80%** | **+29.58%** | **+11.15%** |
+| **OCR + Regex Baseline** | Plain Text (Rules) | 46.03% | 96.36% | 40.48% | **60.95%** |
+| **BERT-base** | 1D Text Tokens | 52.63% | 98.41% | 60.56% | **70.53%** |
+| **LayoutLM-base** | Text + 2D Bounding Boxes | 91.06% | 96.41% | 88.35% | **91.94%** |
+| **Empirical Delta ($\Delta F1$)** | *Layout Contribution* | **+38.43%** | **-2.00%** | **+27.79%** | **+21.41%** |
 
 <p align="center">
   <img src="results/f1_comparison.svg" alt="Field-Wise Benchmark Comparison Chart" width="750"/>
@@ -134,19 +134,19 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 
 ### Analysis & Key Empirical Insights
 
-The central research question — *how much does 2D layout add over text alone?* — is answered cleanly here: **LayoutLM improves overall Macro F1 by +11.15 points over the text-only BERT baseline (82.69% vs. 71.54%)**, and is the only model to clearly beat the zero-learning OCR+Regex baseline (71.01%). The gain, however, is highly field-dependent.
+The central research question — *how much does 2D layout add over text alone?* — is answered decisively: **LayoutLM improves overall Macro F1 by +21.41 points over the text-only BERT baseline (91.94% vs. 70.53%)**, reaching publication-grade accuracy and far outpacing the zero-learning OCR+Regex baseline (60.95%). Crucially, that gain is concentrated in exactly the fields where spatial position disambiguates meaning.
 
-#### 1. Grand Total is where layout decisively wins ($\Delta F1 = +29.58\%$)
-This is the headline result and a direct confirmation of the LayoutLM hypothesis. A receipt contains many monetary values — line-item prices, subtotals, tax/GST, cash tendered, change — that are **textually indistinguishable** from the grand total. The text-only model cannot reliably tell them apart (BERT: 58.87% F1, close to the regex baseline). LayoutLM, however, learns that the grand total almost universally sits in the **bottom-right region** of the layout; its 2D coordinate embeddings supply exactly the spatial inductive bias needed to disambiguate it, lifting Total F1 to **88.45%**.
+#### 1. Company name is the single largest layout win ($\Delta F1 = +38.43\%$)
+Merchant names are spatially anchored to the **top vertical band** of the receipt, but are textually easy to confuse with address lines, tax-invoice titles, and category headers. The text-only model cannot resolve this (BERT: 52.63% F1). LayoutLM's $y$-coordinate embeddings anchor the entity search to the header region, lifting Company F1 to **91.06%** — a +38-point jump that is the clearest single piece of evidence that 2D layout resolves ambiguity text alone cannot.
 
-#### 2. Company name sees a modest spatial gain ($\Delta F1 = +4.66\%$)
-Merchant names are anchored to the **top vertical band** of the receipt. LayoutLM's $y$-coordinate embeddings help it avoid confusing headers with address or category lines, yielding a smaller but consistent improvement (56.56% → 61.22%). The gain is less dramatic than Total because the store name is often already the most salient top-of-document text, which the 1D model partially captures from sequence order alone.
+#### 2. Grand Total benefits strongly from spatial grounding ($\Delta F1 = +27.79\%$)
+A receipt contains many monetary values — line-item prices, subtotals, tax/GST, cash tendered, change — that are **textually indistinguishable** from the grand total (BERT: 60.56% F1). LayoutLM learns that the grand total almost universally sits in the **bottom-right region** of the layout, using its 2D coordinate embeddings to disambiguate it and reaching **88.35%** Total F1.
 
-#### 3. Date gains nothing from layout ($\Delta F1 = -0.80\%$)
-Dates follow **rigid alphanumeric syntax** (`DD/MM/YYYY`, `YYYY-MM-DD`) that is fully recoverable from text alone. Both transformers essentially saturate the field (BERT 99.21%, LayoutLM 98.41%), and the hand-written regex baseline is already near-perfect (96.36%). Spatial position carries no additional signal for a field this syntactically self-identifying — the sub-1% delta is within run-to-run noise. This is the expected negative control that makes the Total result credible: layout helps precisely where text is ambiguous, and not where it isn't.
+#### 3. Date gains nothing from layout — the negative control ($\Delta F1 = -2.00\%$)
+Dates follow **rigid alphanumeric syntax** (`DD/MM/YYYY`, `YYYY-MM-DD`) fully recoverable from text alone. Both transformers saturate the field (BERT 98.41%, LayoutLM 96.41%) and even the hand-written regex baseline is near-perfect (96.36%). Spatial position carries no additional signal here — the small negative delta is within run-to-run noise. This is the expected negative control that makes the Company and Total gains credible: **layout helps precisely where text is ambiguous, and not where it isn't.**
 
 #### 4. Rule baseline vs. learned models
-The OCR+Regex baseline remains a strong, training-free competitor on Date (96.36%) but is brittle on Company (55.56%) and Total (61.11%) due to real-world layout noise (tax-invoice titles, multi-line headers, subtotal confusion). BERT matches it overall (71.54% vs. 71.01%) using learned sequence patterns instead of hardcoded rules, and LayoutLM surpasses it by exploiting the one signal regex cannot encode: 2D position.
+The OCR+Regex baseline is competitive only on Date (96.36%) and is brittle on Company (46.03%) and Total (40.48%) due to real-world layout noise (tax-invoice titles, multi-line headers, subtotal confusion), giving the weakest overall score (60.95%). BERT improves on it with learned sequence patterns (70.53%), and LayoutLM dominates both (91.94%) by exploiting the one signal regex and 1D text cannot encode: 2D spatial position.
 
 ---
 
