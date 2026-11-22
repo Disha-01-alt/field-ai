@@ -9,8 +9,8 @@ tqdm>=4.65.0
 # Receipt Image -> Preprocessing (OpenCV) -> PaddleOCR -> Text + Bounding Boxes -> Advanced Regex
 opencv-python>=4.8.0
 pillow>=9.5.0
-paddlepaddle>=3.0.0
-paddleocr>=2.7.0
+paddlepaddle==3.0.0
+paddleocr==2.10.0  # paddle_ocr_engine.py reads the 2.x result format
 pytesseract>=0.3.10
 
 # Benchmark visualization
