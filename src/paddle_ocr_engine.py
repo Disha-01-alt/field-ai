@@ -42,21 +42,33 @@ class PaddleOCREngine:
                 except TypeError:
                     self._ocr = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang)
             else:
-                # PaddleOCR 3.x: skip the whole-page orientation / unwarping models,
-                # our own preprocessing already deskews the receipt.
-                self._ocr = PaddleOCR(
-                    lang=self.lang,
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=self.use_angle_cls,
-                )
+                self._ocr = self._build_v3(PaddleOCR)
+
+    def _build_v3(self, PaddleOCR, **extra):
+        # PaddleOCR 3.x: skip the whole-page orientation / unwarping models,
+        # our own preprocessing already deskews the receipt.
+        return PaddleOCR(
+            lang=self.lang,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=self.use_angle_cls,
+            **extra,
+        )
 
     def _run_ocr(self, image: np.ndarray) -> List[Tuple[Any, str, float]]:
         """Run OCR and return [(polygon, text, confidence), ...] for either PaddleOCR 2.x or 3.x."""
         if self._is_v2:
             results = self._ocr.ocr(image, cls=self.use_angle_cls)
         else:
-            results = self._ocr.predict(image)
+            try:
+                results = self._ocr.predict(image)
+            except NotImplementedError:
+                # Some paddlepaddle 3.x CPU builds crash inside the oneDNN (MKL-DNN)
+                # backend ("ConvertPirAttribute2RuntimeAttribute not support").
+                # Rebuild without oneDNN and try again.
+                from paddleocr import PaddleOCR
+                self._ocr = self._build_v3(PaddleOCR, enable_mkldnn=False)
+                results = self._ocr.predict(image)
         return self.parse_results(results)
 
     @staticmethod
