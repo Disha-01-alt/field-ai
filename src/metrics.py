@@ -3,9 +3,8 @@ Unified Evaluation Metrics for Receipt Information Extraction.
 
 This module provides the single source of truth for evaluating:
 1. Exact Match Field-Level Extraction (Precision, Recall, F1 per field and Macro F1)
-2. Normalized String Matching (ignoring trivial punctuation/casing noise)
-3. Token-Level Sequence Labeling (BIO scheme via seqeval or built-in fallback)
-4. Empirical Delta Analysis: ΔF1 = F1(LayoutLM) - F1(BERT)
+2. Normalized String Matching (field-aware: date/total/company handled separately)
+3. Empirical Delta Analysis: ΔF1 = F1(LayoutLM) - F1(BERT)
 """
 
 import json
