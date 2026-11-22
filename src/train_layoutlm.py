@@ -691,12 +691,16 @@ def print_metrics(title, metrics):
 # 9. TRAINING
 # ============================================================
 
-def train():
+def train(train_file=None, test_file=None, output_dir=None):
+    """Train LayoutLM. Paths default to TRAIN_FILE / TEST_FILE / OUTPUT_DIR."""
+    train_file = train_file or TRAIN_FILE
+    test_file = test_file or TEST_FILE
+    output_dir = output_dir or OUTPUT_DIR
 
     set_seed(SEED)
 
     os.makedirs(
-        OUTPUT_DIR,
+        output_dir,
         exist_ok=True
     )
 
@@ -715,8 +719,8 @@ def train():
     # Load existing dataset splits.
     # --------------------------------------------------------
 
-    all_train_samples = load_json(TRAIN_FILE)
-    test_samples = load_json(TEST_FILE)
+    all_train_samples = load_json(train_file)
+    test_samples = load_json(test_file)
 
     # Check for document overlap between train and test.
     train_ids = {
@@ -842,7 +846,7 @@ def train():
     history = []
 
     best_model_dir = os.path.join(
-        OUTPUT_DIR,
+        output_dir,
         "best_model"
     )
 
@@ -1007,7 +1011,7 @@ def train():
     }
 
     results_path = os.path.join(
-        OUTPUT_DIR,
+        output_dir,
         "training_results.json"
     )
 

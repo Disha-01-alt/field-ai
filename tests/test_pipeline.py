@@ -371,3 +371,76 @@ def test_compare_methods_asks_to_run_ocr_first(tmp_path):
     with pytest.raises(RuntimeError, match="Step 4"):
         compare_methods(limit=1, data_dir=str(tmp_path), cache_root=str(tmp_path / "none"),
                         predict_fn=lambda w, b: {}, output_path=str(tmp_path / "o.json"))
+
+
+# ---------------------------------------------------------------------------
+# OCR-based training data (src/ocr_dataset.py)
+# ---------------------------------------------------------------------------
+
+def test_labels_survive_ocr_misreads_but_totals_must_match_exactly():
+    from src.ocr_dataset import align_ocr_words
+
+    words = "GERPANG ALAF RESTAURANTS SDN BHD DATE: 15-01-2O19 TOTAL RM 12.51 CASH 20.00".split()
+    entities = {"company": "GERBANG ALAF RESTAURANTS SDN BHD", "date": "15/01/2019", "total": "12.50", "address": ""}
+    tags = dict(zip(words, align_ocr_words(words, entities)))
+
+    assert tags["GERPANG"] == "B-COMPANY" and tags["BHD"] == "I-COMPANY"   # one misread letter
+    assert tags["15-01-2O19"] == "B-DATE"                                    # 'O' read for '0'
+    assert tags["12.51"] == "O"                                              # a near amount is the wrong number
+
+
+def test_fuzzy_labels_do_not_overlap_and_ignore_unrelated_text():
+    from src.ocr_dataset import align_ocr_words
+
+    words = "ACME STORE SDN BHD NO 5 JALAN BESAR SHAH ALAM".split()
+    entities = {"company": "ACME STORE SDN BHD", "address": "NO 5 JALAN BESAR SHAH ALAM", "date": "", "total": ""}
+    tags = align_ocr_words(words, entities)
+    assert tags[:4] == ["B-COMPANY", "I-COMPANY", "I-COMPANY", "I-COMPANY"]
+    assert tags[4] == "B-ADDRESS" and tags[-1] == "I-ADDRESS"
+
+    unrelated = align_ocr_words("HELLO WORLD THANK YOU".split(), {"company": "ACME STORE SDN BHD"})
+    assert set(unrelated) == {"O"}
+
+
+def test_prepare_ocr_dataset_uses_all_splits_and_keeps_test_apart(tmp_path, monkeypatch):
+    import json
+    import pytest
+    import src.ocr_dataset as ocr_dataset
+
+    def entity(company, total):
+        return {"company": company, "date": "01/02/2019", "total": total, "address": ""}
+
+    splits = {
+        "train": {"t1.jpg": entity("ALPHA SDN BHD", "10.00")},
+        "val": {"v1.jpg": entity("BETA TRADING", "20.00")},
+        "test": {"x1.jpg": entity("GAMMA ENTERPRISE", "30.00")},
+    }
+    monkeypatch.setattr(ocr_dataset, "download_sroie", lambda split, data_dir, limit, fields: splits[split])
+    receipts = {n: _fake_tokens(e["company"], e["date"], e["total"]) for sp in splits.values() for n, e in sp.items()}
+    pipe = _FakePipeline(receipts)
+
+    out = tmp_path / "ocr"
+    summary = ocr_dataset.prepare_ocr_dataset(data_dir=str(tmp_path), cache_root=str(tmp_path / "c"),
+                                              out_dir=str(out), pipeline=pipe)
+    train = json.load(open(out / "train.json"))
+    test = json.load(open(out / "test.json"))
+
+    assert sorted(s["id"] for s in train) == ["t1", "v1"]       # train + val photos
+    assert [s["id"] for s in test] == ["x1"]                    # test photos only
+    for s in train + test:
+        assert len(s["words"]) == len(s["bboxes"]) == len(s["ner_tags"])
+        assert all(0 <= c <= 1000 for box in s["bboxes"] for c in box)
+    assert "B-TOTAL" in test[0]["bio_tags"] and "B-COMPANY" in test[0]["bio_tags"]
+    assert summary["test_label_coverage"]["total"] == 1.0
+
+    # second run reads everything from the cache: OCR is not run again
+    calls = len(pipe.calls)
+    ocr_dataset.prepare_ocr_dataset(data_dir=str(tmp_path), cache_root=str(tmp_path / "c"),
+                                    out_dir=str(out), pipeline=pipe)
+    assert len(pipe.calls) == calls
+
+    # the same receipt in train and test must be refused
+    splits["test"] = {"t1.jpg": entity("ALPHA SDN BHD", "10.00")}
+    with pytest.raises(ValueError, match="both train and test"):
+        ocr_dataset.prepare_ocr_dataset(data_dir=str(tmp_path), cache_root=str(tmp_path / "c"),
+                                        out_dir=str(out), pipeline=pipe)

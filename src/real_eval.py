@@ -36,8 +36,8 @@ FIELDS = ("company", "date", "total")
 # 1. Dataset
 # ---------------------------------------------------------------------------
 
-def load_ground_truth(metadata_path: str) -> Dict[str, Dict[str, str]]:
-    """Read metadata.jsonl -> {image_file_name: {company, date, total}}."""
+def load_ground_truth(metadata_path: str, fields=FIELDS) -> Dict[str, Dict[str, str]]:
+    """Read metadata.jsonl -> {image_file_name: {company, date, total, ...}} for the given fields."""
     truth: Dict[str, Dict[str, str]] = {}
     with open(metadata_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -49,7 +49,7 @@ def load_ground_truth(metadata_path: str) -> Dict[str, Dict[str, str]]:
             if isinstance(gt, str):
                 gt = json.loads(gt)
             parsed = gt.get("gt_parse", gt)
-            truth[row["file_name"]] = {k: str(parsed.get(k, "") or "") for k in FIELDS}
+            truth[row["file_name"]] = {k: str(parsed.get(k, "") or "") for k in fields}
     return truth
 
 
@@ -57,6 +57,7 @@ def download_sroie(
     split: str = "test",
     data_dir: str = "data/sroie",
     limit: Optional[int] = None,
+    fields=FIELDS,
 ) -> Dict[str, Dict[str, str]]:
     """
     Download receipt images + labels of one SROIE split from Hugging Face.
@@ -69,7 +70,7 @@ def download_sroie(
     os.makedirs(split_dir, exist_ok=True)
 
     meta_path = hf_hub_download(SROIE_REPO, f"{split}/metadata.jsonl", repo_type="dataset", local_dir=data_dir)
-    truth = load_ground_truth(meta_path)
+    truth = load_ground_truth(meta_path, fields)
 
     names = sorted(truth)
     if limit:
@@ -85,6 +86,20 @@ def download_sroie(
 # ---------------------------------------------------------------------------
 # 2. OCR (slow, cached)
 # ---------------------------------------------------------------------------
+
+class LazyPipeline:
+    """Builds the OCR pipeline on first use, so a run that is fully cached never loads the OCR models."""
+
+    def __init__(self, fast: bool = True):
+        self.fast = fast
+        self._pipeline = None
+
+    def process(self, image_path: str):
+        if self._pipeline is None:
+            from src.pipeline import ReceiptExtractionPipeline
+            self._pipeline = ReceiptExtractionPipeline(fast=self.fast)
+        return self._pipeline.process(image_path)
+
 
 def run_ocr(
     names: List[str],
@@ -171,8 +186,7 @@ def evaluate_real_data(
     cache_dir = os.path.join(cache_root, "mobile" if fast else "server")
 
     if pipeline is None:
-        from src.pipeline import ReceiptExtractionPipeline
-        pipeline = ReceiptExtractionPipeline(fast=fast)
+        pipeline = LazyPipeline(fast=fast)
 
     print(f"Running the real pipeline on {len(names)} SROIE '{split}' receipt images "
           f"({'mobile' if fast else 'server'} OCR models)...")
