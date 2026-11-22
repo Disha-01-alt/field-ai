@@ -32,10 +32,11 @@ class ReceiptExtractionPipeline:
         use_gpu: bool = False,
         deskew: bool = True,
         binarize: bool = False,
+        fast: bool = False,
     ):
         self.deskew = deskew
         self.binarize = binarize
-        self.ocr_engine = PaddleOCREngine(lang=lang, use_angle_cls=use_angle_cls, use_gpu=use_gpu)
+        self.ocr_engine = PaddleOCREngine(lang=lang, use_angle_cls=use_angle_cls, use_gpu=use_gpu, fast=fast)
 
     def process(self, image_input: Union[str, Path, np.ndarray]) -> Dict[str, Any]:
         """

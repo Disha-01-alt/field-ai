@@ -18,10 +18,16 @@ from src.advanced_regex import OCRToken
 class PaddleOCREngine:
     """Wrapper around PaddleOCR for receipt documents."""
 
-    def __init__(self, lang: str = "en", use_angle_cls: bool = True, use_gpu: bool = False):
+    def __init__(self, lang: str = "en", use_angle_cls: bool = True, use_gpu: bool = False, fast: bool = False):
+        """
+        fast: PaddleOCR 3.x only. Use the small "mobile" detection/recognition models and skip
+              the per-line orientation check (receipts are already deskewed by our preprocessing).
+              About 3-4x faster on CPU with similar quality on receipts.
+        """
         self.lang = lang
         self.use_angle_cls = use_angle_cls
         self.use_gpu = use_gpu
+        self.fast = fast
         self._ocr = None
 
     def _init_ocr(self):
@@ -47,13 +53,17 @@ class PaddleOCREngine:
     def _build_v3(self, PaddleOCR, **extra):
         # PaddleOCR 3.x: skip the whole-page orientation / unwarping models,
         # our own preprocessing already deskews the receipt.
-        return PaddleOCR(
+        options = dict(
             lang=self.lang,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
-            use_textline_orientation=self.use_angle_cls,
-            **extra,
+            use_textline_orientation=self.use_angle_cls and not self.fast,
         )
+        if self.fast and self.lang == "en":
+            options["text_detection_model_name"] = "PP-OCRv5_mobile_det"
+            options["text_recognition_model_name"] = "en_PP-OCRv5_mobile_rec"
+        options.update(extra)
+        return PaddleOCR(**options)
 
     def _run_ocr(self, image: np.ndarray) -> List[Tuple[Any, str, float]]:
         """Run OCR and return [(polygon, text, confidence), ...] for either PaddleOCR 2.x or 3.x."""

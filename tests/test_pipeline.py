@@ -184,3 +184,105 @@ if __name__ == "__main__":
     test_advanced_regex_extraction()
     print("All tests passed successfully!")
 
+
+
+# ---------------------------------------------------------------------------
+# Real-data evaluation (src/real_eval.py) - uses a stand-in OCR, nothing is downloaded
+# ---------------------------------------------------------------------------
+
+def _fake_tokens(company, date, total):
+    """Tokens in the format ReceiptExtractionPipeline.process() returns (boxes in [0, 1000])."""
+    rows = [(company, 50), (f"DATE: {date}", 300), ("SUBTOTAL 1.00", 700), (f"TOTAL RM {total}", 800)]
+    return [{"text": t, "box": [50, y, 900, y + 25], "confidence": 0.9} for t, y in rows]
+
+
+class _FakePipeline:
+    """Stands in for ReceiptExtractionPipeline: 'reads' receipts from a dict instead of running OCR."""
+
+    def __init__(self, receipts):
+        self.receipts = receipts
+        self.calls = []
+
+    def process(self, image_path):
+        import os
+        name = os.path.basename(image_path)
+        self.calls.append(name)
+        if name not in self.receipts:
+            raise ValueError("cannot read image")
+        return {"tokens": self.receipts[name], "preprocessing": {"scale_factor": 1.0, "skew_angle": 0.0}}
+
+
+def test_load_ground_truth_reads_metadata_jsonl(tmp_path):
+    import json
+    from src.real_eval import load_ground_truth
+
+    meta = tmp_path / "metadata.jsonl"
+    row = {"file_name": "a.jpg",
+           "ground_truth": json.dumps({"gt_parse": {"company": "ACME SDN BHD", "date": "01/02/2019",
+                                                    "address": "x", "total": "12.50"}})}
+    meta.write_text(json.dumps(row) + "\n\n", encoding="utf-8")
+    assert load_ground_truth(str(meta)) == {"a.jpg": {"company": "ACME SDN BHD", "date": "01/02/2019", "total": "12.50"}}
+
+
+def test_run_ocr_caches_resumes_and_survives_bad_image(tmp_path):
+    import json
+    from src.real_eval import run_ocr, extract_from_cache
+
+    pipe = _FakePipeline({"a.jpg": _fake_tokens("ACME SDN BHD", "01/02/2019", "12.50")})
+    cache = str(tmp_path / "cache")
+    stats = run_ocr(["a.jpg", "bad.jpg"], str(tmp_path), cache, pipe, show_progress=False)
+    assert stats == {"done": 2, "cached": 0, "errors": 1}
+    assert "error" in json.load(open(tmp_path / "cache" / "bad.jpg.json"))
+
+    # second run: everything comes from the cache, OCR is not run again
+    stats = run_ocr(["a.jpg", "bad.jpg"], str(tmp_path), cache, pipe, show_progress=False)
+    assert stats["done"] == 0 and stats["cached"] == 2
+    assert pipe.calls == ["a.jpg", "bad.jpg"]
+
+    preds = extract_from_cache(["a.jpg", "bad.jpg"], cache)
+    assert preds["a.jpg"] == {"company": "ACME SDN BHD", "date": "01/02/2019", "total": "12.50"}
+    assert preds["bad.jpg"] == {"company": "", "date": "", "total": ""}
+
+
+def test_evaluate_real_data_scores_extracted_fields_and_writes_results(tmp_path, monkeypatch):
+    import json
+    import src.real_eval as real_eval
+
+    truth = {
+        "a.jpg": {"company": "ACME SDN BHD", "date": "01/02/2019", "total": "12.50"},
+        "b.jpg": {"company": "BETA TRADING", "date": "05/06/2019", "total": "99.00"},
+    }
+    monkeypatch.setattr(real_eval, "download_sroie", lambda split, data_dir, limit: truth)
+    pipe = _FakePipeline({
+        "a.jpg": _fake_tokens("ACME SDN BHD", "01/02/2019", "12.50"),      # all correct
+        "b.jpg": _fake_tokens("BETA TRADING", "05/06/2019", "98.00"),      # wrong total
+    })
+    out = tmp_path / "res" / "regex_baseline.json"
+    results = real_eval.evaluate_real_data(limit=2, data_dir=str(tmp_path), cache_root=str(tmp_path / "c"),
+                                           output_path=str(out), pipeline=pipe)
+
+    assert results["test_size"] == 2 and results["ocr_errors"] == 0
+    assert results["metrics"]["company"]["f1"] == 1.0
+    assert results["metrics"]["date"]["f1"] == 1.0
+    assert results["metrics"]["total"]["f1"] == 0.5
+    saved = json.load(open(out))
+    assert saved["model"] == "PaddleOCR + Advanced Regex" and "macro_avg" in saved["metrics"]
+
+
+def test_fast_engine_uses_mobile_models_and_skips_line_orientation():
+    from src.paddle_ocr_engine import PaddleOCREngine
+
+    seen = {}
+
+    class FakePaddleOCR:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    PaddleOCREngine(fast=True)._build_v3(FakePaddleOCR)
+    assert seen["text_detection_model_name"] == "PP-OCRv5_mobile_det"
+    assert seen["text_recognition_model_name"] == "en_PP-OCRv5_mobile_rec"
+    assert seen["use_textline_orientation"] is False
+
+    seen.clear()
+    PaddleOCREngine(fast=False)._build_v3(FakePaddleOCR)
+    assert "text_detection_model_name" not in seen
