@@ -18,13 +18,15 @@ Usage:
 """
 
 import argparse
+import difflib
 import json
 import os
+import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.advanced_regex import AdvancedRegexExtractor, OCRToken
-from src.metrics import compute_field_metrics
+from src.metrics import compute_field_metrics, field_match, normalize_text
 
 SROIE_REPO = "podbilabs/sroie-donut"   # public copy of the SROIE receipts (images + labels)
 FIELDS = ("company", "date", "total")
@@ -153,6 +155,7 @@ def evaluate_real_data(
     cache_root: str = "outputs/ocr_cache",
     output_path: str = "results/regex_baseline.json",
     pipeline: Any = None,
+    show_misses: int = 6,
 ) -> Dict[str, Any]:
     """
     Full real-data benchmark of "PaddleOCR + Advanced Regex":
@@ -160,6 +163,7 @@ def evaluate_real_data(
 
     limit: number of receipts to use (None or 0 = the whole split).
     fast:  use PaddleOCR's small "mobile" models (about 3-4x faster, similar quality on receipts).
+    show_misses: how many wrong examples to print per field (0 = only the summary counts).
     """
     truth = download_sroie(split=split, data_dir=data_dir, limit=limit)
     names = list(truth)
@@ -192,6 +196,7 @@ def evaluate_real_data(
         json.dump(results, f, indent=2)
 
     print_report(results, stats)
+    diagnose_all(names, truth, predictions, cache_dir, show=show_misses)
     return results
 
 
@@ -217,6 +222,187 @@ def print_report(results: Dict[str, Any], stats: Optional[Dict[str, int]] = None
         print(f"WARNING: OCR failed on {results['ocr_errors']} image(s); they count as empty predictions.")
     if stats:
         print(f"OCR: {stats['done']} new, {stats['cached']} from cache.")
+
+
+
+# ---------------------------------------------------------------------------
+# 4. Why is a field wrong?  OCR misread it, or did the extractor choose badly?
+# ---------------------------------------------------------------------------
+
+def _load_tokens(cache_dir: str, name: str) -> Optional[List[Dict[str, Any]]]:
+    path = os.path.join(cache_dir, name + ".json")
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f).get("tokens")
+
+
+def _text_was_read(field: str, truth_value: str, lines: List[str]) -> bool:
+    """True if the correct answer can be found in the OCR text (so OCR read it right)."""
+    joined = " ".join(lines)
+    if field == "total":
+        amount = re.sub(r"[^\d.]", "", truth_value)
+        return bool(amount) and amount in joined.replace(",", "")
+    if field == "date":
+        digits = re.sub(r"\D", "", truth_value)
+        if digits and digits in re.sub(r"\D", "", joined):
+            return True
+        return normalize_text(truth_value) in normalize_text(joined)
+    return normalize_text(truth_value) in normalize_text(joined)
+
+
+def diagnose_misses(
+    field: str,
+    names: List[str],
+    truth: Dict[str, Dict[str, str]],
+    predictions: Dict[str, Dict[str, str]],
+    cache_dir: str,
+    show: int = 6,
+) -> Dict[str, int]:
+    """
+    For every wrong prediction of `field`, check whether the correct text is in the OCR output.
+      - not in OCR text -> an OCR problem (PaddleOCR misread or missed it): improve OCR / image preprocessing.
+      - in OCR text     -> an extractor problem (it picked the wrong line / amount): improve the rules.
+    Prints the counts and a few examples; returns the counts.
+    """
+    counts = {"wrong": 0, "ocr_problem": 0, "extractor_problem": 0, "no_ocr": 0}
+    examples = []
+    for name in names:
+        gt, pred = truth[name].get(field, ""), predictions[name].get(field, "")
+        if field_match(pred, gt, field):
+            continue
+        counts["wrong"] += 1
+        tokens = _load_tokens(cache_dir, name)
+        if not tokens:
+            counts["no_ocr"] += 1
+            continue
+        lines = [t["text"] for t in tokens]
+        if _text_was_read(field, gt, lines):
+            counts["extractor_problem"] += 1
+            kind = "EXTRACTOR"
+        else:
+            counts["ocr_problem"] += 1
+            kind = "OCR"
+        close = difflib.get_close_matches(gt, lines, n=1, cutoff=0.0)
+        examples.append((kind, name, gt, pred, close[0] if close else ""))
+
+    print(f"\n{field.upper()}: {counts['wrong']} wrong of {len(names)}  ->  "
+          f"{counts['ocr_problem']} OCR misread the text, "
+          f"{counts['extractor_problem']} extractor picked the wrong text"
+          + (f", {counts['no_ocr']} OCR failed" if counts["no_ocr"] else ""))
+    for kind, name, gt, pred, close in examples[:show]:
+        print(f"  [{kind:9}] {name}\n      answer   : {gt!r}\n      predicted: {pred!r}\n      closest OCR line: {close!r}")
+    return counts
+
+
+def diagnose_all(names, truth, predictions, cache_dir, show: int = 6) -> Dict[str, Dict[str, int]]:
+    print("\n" + "=" * 60)
+    print("Why are predictions wrong?  (OCR problem = PaddleOCR never read the right text)")
+    print("=" * 60)
+    return {f: diagnose_misses(f, names, truth, predictions, cache_dir, show) for f in FIELDS}
+
+
+# ---------------------------------------------------------------------------
+# 5. Same real photos, three extractors: rules vs LayoutLM vs hybrid
+# ---------------------------------------------------------------------------
+
+# Which method to trust first for each field. Chosen from the benchmark on the dataset's own text
+# (LayoutLM: company 0.91 / date 0.96, rules: total 0.93 / 0.88 for LayoutLM). The comparison below
+# measures it on real OCR output, so change this if the real-photo numbers say otherwise.
+HYBRID_PRIORITY = {
+    "company": ["layoutlm", "regex"],
+    "date": ["layoutlm", "regex"],
+    "total": ["regex", "layoutlm"],
+}
+
+
+def tokens_to_words(tokens: List[Dict[str, Any]]):
+    """OCR text lines -> (words, boxes): every word gets the box of its line (the training format)."""
+    words, boxes = [], []
+    for t in tokens:
+        for w in str(t["text"]).split():
+            words.append(w)
+            boxes.append([int(c) for c in t["box"]])
+    return words, boxes
+
+
+def combine_predictions(
+    regex_pred: Dict[str, str],
+    layoutlm_pred: Dict[str, str],
+    priority: Optional[Dict[str, List[str]]] = None,
+) -> Dict[str, str]:
+    """Per field, take the first non-empty answer in the priority order."""
+    priority = priority or HYBRID_PRIORITY
+    by_method = {"regex": regex_pred, "layoutlm": layoutlm_pred}
+    out = {}
+    for field in FIELDS:
+        out[field] = ""
+        for method in priority[field]:
+            if by_method[method].get(field):
+                out[field] = by_method[method][field]
+                break
+    return out
+
+
+def compare_methods(
+    split: str = "test",
+    limit: Optional[int] = 50,
+    fast: bool = True,
+    data_dir: str = "data/sroie",
+    cache_root: str = "outputs/ocr_cache",
+    model: Any = None,
+    tokenizer: Any = None,
+    predict_fn: Optional[Callable[[List[str], List[List[int]]], Dict[str, str]]] = None,
+    output_path: str = "results/real_data_comparison.json",
+) -> Dict[str, Any]:
+    """
+    Score three extractors on the SAME real-photo OCR output (read from the cache that
+    evaluate_real_data() wrote, so no OCR is run again):
+        regex    - advanced regex rules
+        layoutlm - the fine-tuned LayoutLM (pass `model` and `tokenizer`, or your own `predict_fn`)
+        hybrid   - best method per field (HYBRID_PRIORITY)
+    """
+    cache_dir = os.path.join(cache_root, "mobile" if fast else "server")
+    truth_all = load_ground_truth(os.path.join(data_dir, split, "metadata.jsonl"))
+    names = sorted(truth_all)
+    if limit:
+        names = names[:limit]
+    truth = {n: truth_all[n] for n in names}
+
+    missing = [n for n in names if _load_tokens(cache_dir, n) is None]
+    if missing:
+        raise RuntimeError(f"OCR results missing for {len(missing)} image(s) in {cache_dir}. "
+                           f"Run evaluate_real_data() (Step 4) first with the same settings.")
+
+    if predict_fn is None:
+        from src.inference import predict_fields
+        predict_fn = lambda words, boxes: predict_fields(model, tokenizer, words, boxes)  # noqa: E731
+
+    regex_preds = extract_from_cache(names, cache_dir)
+    layoutlm_preds, hybrid_preds = {}, {}
+    for n in names:
+        words, boxes = tokens_to_words(_load_tokens(cache_dir, n))
+        layoutlm_preds[n] = predict_fn(words, boxes) if words else {}
+        hybrid_preds[n] = combine_predictions(regex_preds[n], layoutlm_preds[n])
+
+    methods = {"Advanced Regex": regex_preds, "LayoutLM": layoutlm_preds, "Hybrid (best per field)": hybrid_preds}
+    results = {"test_size": len(names), "metrics": {
+        label: compute_field_metrics(preds, truth, target_fields=list(FIELDS)) for label, preds in methods.items()
+    }}
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+
+    print("\n" + "=" * 72)
+    print(f"Same {len(names)} real receipt photos, three extractors (F1)")
+    print("=" * 72)
+    print(f"{'Method':<26}{'Company':>10}{'Date':>10}{'Total':>10}{'Average':>12}")
+    for label, m in results["metrics"].items():
+        print(f"{label:<26}{m['company']['f1']:>10.3f}{m['date']['f1']:>10.3f}"
+              f"{m['total']['f1']:>10.3f}{m['macro_avg']['f1']:>12.3f}")
+    print("=" * 72)
+    return results
 
 
 def main() -> None:

@@ -286,3 +286,88 @@ def test_fast_engine_uses_mobile_models_and_skips_line_orientation():
     seen.clear()
     PaddleOCREngine(fast=False)._build_v3(FakePaddleOCR)
     assert "text_detection_model_name" not in seen
+
+
+def _write_cache(cache_dir, name, tokens):
+    import json, os
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(os.path.join(cache_dir, name + ".json"), "w", encoding="utf-8") as f:
+        json.dump({"tokens": tokens}, f)
+
+
+def test_diagnose_misses_separates_ocr_misread_from_extractor_mistake(tmp_path, capsys):
+    from src.real_eval import diagnose_misses
+
+    cache = str(tmp_path)
+    # a.jpg: OCR read the true company name, but the extractor chose another line
+    _write_cache(cache, "a.jpg", [{"text": "WRONG LINE SDN BHD", "box": [0, 0, 1, 1]},
+                                  {"text": "ACME TRADING", "box": [0, 50, 1, 51]}])
+    # b.jpg: OCR misread the name ("ACNE" for "ACME"), nothing could have got it right
+    _write_cache(cache, "b.jpg", [{"text": "ACNE TRADING", "box": [0, 0, 1, 1]}])
+    truth = {"a.jpg": {"company": "ACME TRADING"}, "b.jpg": {"company": "ACME TRADING"}}
+    preds = {"a.jpg": {"company": "WRONG LINE SDN BHD"}, "b.jpg": {"company": "ACNE TRADING"}}
+
+    counts = diagnose_misses("company", ["a.jpg", "b.jpg"], truth, preds, cache)
+    assert counts == {"wrong": 2, "ocr_problem": 1, "extractor_problem": 1, "no_ocr": 0}
+    assert "closest OCR line" in capsys.readouterr().out
+
+
+def test_diagnose_total_and_date_found_in_ocr_text(tmp_path):
+    from src.real_eval import _text_was_read
+
+    assert _text_was_read("total", "1,234.50", ["TOTAL RM 1,234.50"])
+    assert not _text_was_read("total", "20.50", ["TOTAL RM 20.60"])
+    assert _text_was_read("date", "15/01/2019", ["DATE 15-01-2019 10:20"])
+    assert not _text_was_read("date", "15/01/2019", ["DATE 15-01-2O19"])
+
+
+def test_hybrid_takes_best_method_per_field_and_falls_back():
+    from src.real_eval import combine_predictions
+
+    regex = {"company": "REGEX CO", "date": "", "total": "10.00"}
+    layout = {"company": "LAYOUT CO", "date": "01/01/2019", "total": "11.00", "address": "x"}
+    assert combine_predictions(regex, layout) == {"company": "LAYOUT CO", "date": "01/01/2019", "total": "10.00"}
+    # LayoutLM found nothing -> fall back to the rules
+    assert combine_predictions(regex, {})["company"] == "REGEX CO"
+
+
+def test_compare_methods_scores_three_methods_on_cached_ocr(tmp_path):
+    import json
+    from src.real_eval import compare_methods
+
+    data_dir, cache_root = tmp_path / "d", tmp_path / "c"
+    (data_dir / "test").mkdir(parents=True)
+    gt = {"company": "ACME SDN BHD", "date": "01/02/2019", "total": "12.50"}
+    row = {"file_name": "a.jpg", "ground_truth": json.dumps({"gt_parse": gt})}
+    (data_dir / "test" / "metadata.jsonl").write_text(json.dumps(row), encoding="utf-8")
+    _write_cache(str(cache_root / "mobile"), "a.jpg", _fake_tokens("ACME SDN BHD", "01/02/2019", "12.50"))
+
+    seen = {}
+
+    def fake_layoutlm(words, boxes):
+        seen["words"], seen["boxes"] = words, boxes
+        return {"company": "ACME SDN BHD", "date": "01/02/2018", "total": "99.00", "address": ""}
+
+    res = compare_methods(limit=1, data_dir=str(data_dir), cache_root=str(cache_root),
+                          predict_fn=fake_layoutlm, output_path=str(tmp_path / "cmp.json"))
+    m = res["metrics"]
+    assert m["Advanced Regex"]["macro_avg"]["f1"] == 1.0
+    assert m["LayoutLM"]["company"]["f1"] == 1.0 and m["LayoutLM"]["total"]["f1"] == 0.0
+    # hybrid: company+date from LayoutLM (date wrong there), total from the rules (right)
+    assert m["Hybrid (best per field)"]["total"]["f1"] == 1.0
+    assert m["Hybrid (best per field)"]["date"]["f1"] == 0.0
+    # every word is given its OCR line's box
+    assert len(seen["words"]) == len(seen["boxes"]) and seen["boxes"][0] == [50, 50, 900, 75]
+
+
+def test_compare_methods_asks_to_run_ocr_first(tmp_path):
+    import json
+    import pytest
+    from src.real_eval import compare_methods
+
+    (tmp_path / "test").mkdir()
+    row = {"file_name": "a.jpg", "ground_truth": json.dumps({"gt_parse": {"company": "X", "date": "", "total": ""}})}
+    (tmp_path / "test" / "metadata.jsonl").write_text(json.dumps(row), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Step 4"):
+        compare_methods(limit=1, data_dir=str(tmp_path), cache_root=str(tmp_path / "none"),
+                        predict_fn=lambda w, b: {}, output_path=str(tmp_path / "o.json"))
