@@ -120,7 +120,7 @@ We utilize the **ICDAR 2019 Scanned Receipts OCR and Information Extraction (SRO
 
 ## Experimental Results
 
-> *Evaluated on the frozen SROIE Task 3 test split (126 receipts). All three models are decoded to field strings and scored by the same `metrics.py` harness (field-level exact match with light normalization), so the comparison is apples-to-apples.*
+> *Evaluated on the frozen SROIE Task 3 test split (126 receipts). All three models are decoded to field strings and scored by the same `metrics.py` harness (field-level exact match with light normalization), so the comparison is apples-to-apples. `train_layoutlm.py` additionally logs a span-level F1 internally for checkpoint selection only; every number reported here comes from the shared `metrics.py` harness (`results/layoutlm_results.json`).*
 
 | Model Paradigm | Input Modality | Company F1 | Date F1 | Total F1 | Overall Macro F1 |
 |:---|:---|:---:|:---:|:---:|:---:|

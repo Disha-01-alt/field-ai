@@ -981,6 +981,45 @@ def train():
     )
 
     # ========================================================
+    # 10b. UNIFIED FIELD-LEVEL EVALUATION  (the reported metric)
+    # ========================================================
+    # The span-level F1 above (calculate_field_metrics) is used ONLY for
+    # checkpoint selection during training. All *reported* field F1 come from
+    # the shared metrics.py harness: predictions are decoded to field strings
+    # and scored exactly like the regex and BERT baselines, so the three-way
+    # comparison and delta-F1 are strictly apples-to-apples. This block writes
+    # results/layoutlm_results.json (the numbers in the README and the paper).
+    from src.inference import predict_fields          # local import: avoids a circular import
+    from src.metrics import compute_field_metrics
+
+    unified_predictions = {}
+    unified_ground_truth = {}
+    for sample in test_samples:
+        unified_predictions[sample["id"]] = predict_fields(
+            best_model, tokenizer, sample["words"], sample["bboxes"], device=device
+        )
+        unified_ground_truth[sample["id"]] = sample["entities"]
+
+    unified_metrics = compute_field_metrics(unified_predictions, unified_ground_truth)
+
+    os.makedirs("results", exist_ok=True)
+    with open("results/layoutlm_results.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "model": "LayoutLM-base (Multimodal)",
+            "modality": "Text + 2D Bounding Boxes",
+            "metrics": unified_metrics,
+            "sample_predictions": {
+                k: unified_predictions[k] for k in list(unified_predictions)[:5]
+            },
+        }, f, indent=2)
+
+    print(
+        "\nUnified field-level macro F1 (metrics.py harness): "
+        f"{unified_metrics['macro_avg']['f1']:.4f}"
+    )
+    print("Reported results written to results/layoutlm_results.json")
+
+    # ========================================================
     # 11. SAVE EXPERIMENT RESULTS
     # ========================================================
 
