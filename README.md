@@ -6,6 +6,7 @@
 [![Dataset: SROIE 2019](https://img.shields.io/badge/Dataset-ICDAR_2019_SROIE-green.svg)](https://rrc.cvc.uab.es/?ch=13)
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Disha-01-alt/field-ai/blob/main/notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
+[![HF Model](https://img.shields.io/badge/%F0%9F%A4%97%20Model-dishasahu%2Ffieldai--layoutlm--sroie-yellow.svg)](https://huggingface.co/dishasahu/fieldai-layoutlm-sroie)
 
 A deep learning benchmark investigating the impact of **2D spatial layout representations** on key information extraction (KIE) from scanned receipts and invoices.
 
@@ -205,7 +206,17 @@ sudo apt update && sudo apt install -y tesseract-ocr
 
 ## How to Run
 
-**Recommended — one click in Colab.** Open
+**Trained model (no retraining needed).** The fine-tuned LayoutLM is published on the
+Hugging Face Hub at **[`dishasahu/fieldai-layoutlm-sroie`](https://huggingface.co/dishasahu/fieldai-layoutlm-sroie)**.
+Load it directly and run the image demo:
+```python
+from transformers import LayoutLMForTokenClassification, LayoutLMTokenizerFast
+model = LayoutLMForTokenClassification.from_pretrained("dishasahu/fieldai-layoutlm-sroie")
+tok   = LayoutLMTokenizerFast.from_pretrained("dishasahu/fieldai-layoutlm-sroie")
+# then: from src.inference import extract_from_image; extract_from_image(model, tok, "receipt.jpg")
+```
+
+**Reproduce the full benchmark — one click in Colab.** Open
 [`notebooks/FieldAI_Complete_Colab_Benchmark.ipynb`](notebooks/FieldAI_Complete_Colab_Benchmark.ipynb)
 and `Runtime → Run all` (free T4 GPU). It runs all three models, writes every
 file in `results/`, saves the trained model to `outputs/layoutlm/best_model`,
