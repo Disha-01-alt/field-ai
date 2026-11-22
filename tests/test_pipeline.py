@@ -82,6 +82,103 @@ def test_advanced_regex_extraction():
     assert fields["total"] == "18.54"
 
 
+def _lines(rows):
+    """[(text, y0)] -> one full-width OCRToken per row (like PaddleOCR text lines)."""
+    return [OCRToken(text, [50, y, 900, y + 25]) for text, y in rows]
+
+
+def test_company_registration_number_removed():
+    assert AdvancedRegexExtractor.clean_company_name("AEON CO. (M) BHD (126926-H)") == "AEON CO. (M) BHD"
+    assert AdvancedRegexExtractor.clean_company_name("99 SPEED MART S/B (519537-X)") == "99 SPEED MART S/B"
+    assert AdvancedRegexExtractor.clean_company_name("KING'S CONFECTIONERY S/B 273500-U (KSB)") == "KING'S CONFECTIONERY S/B"
+    assert AdvancedRegexExtractor.clean_company_name("RESTORAN WAN SHENG") == "RESTORAN WAN SHENG"
+
+
+def test_company_prefers_merchant_over_customer_below_date():
+    tokens = _lines([
+        ("GARDENIA BAKERIES (KL) SDN BHD (139386 X)", 100),
+        ("LOT 3, JALAN PELABUR 23/1,", 125),
+        ("TAX INVOICE", 215),
+        ("DATE: 14/10/2017", 300),
+        ("MAKASSAR FRESH MARKET SDN BHD", 325),
+    ])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["company"] == "GARDENIA BAKERIES (KL) SDN BHD"
+
+
+def test_company_name_over_two_lines():
+    tokens = _lines([
+        ("POPULAR BOOK", 55),
+        ("CO. (M) SDN BHD", 90),
+        ("(CO. NO. 113825-W)", 127),
+        ("NO 8, JALAN 7/118B, DESA TUN RAZAK", 172),
+    ])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["company"] == "POPULAR BOOK CO. (M) SDN BHD"
+
+
+def test_total_ignores_gst_summary_and_excluding_gst():
+    tokens = _lines([
+        ("SHOP SDN BHD", 50),
+        ("TOTAL QTY: 6 82.68", 586),
+        ("TOTAL SALES (EXCLUDING GST) : 78.00", 622),
+        ("TOTAL GST : 4.68", 674),
+        ("ROUNDING : 0.00", 707),
+        ("TOTAL SALES (INCLUSIVE OF GST) : 82.68", 737),
+        ("CASH : 82.68", 769),
+        ("TAX CODE % AMT (RM) TAX (RM)", 877),
+        ("SR 6 78.00 4.68", 900),
+        ("TOTAL : 78.00 4.68", 928),
+    ])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["total"] == "82.68"
+
+
+def test_total_uses_rounded_amount():
+    tokens = _lines([
+        ("SHOP SDN BHD", 50),
+        ("TOTAL SALES (INCLUSIVE GST) RM 22.91", 637),
+        ("ROUNDING ADJUSTMENT RM -.01", 667),
+        ("ROUNDING RM 22.90", 698),
+        ("CASH RM 50.00", 728),
+        ("CHANGE RM 27.10", 759),
+    ])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["total"] == "22.90"
+
+
+def test_total_skips_savings_and_negative_amounts():
+    tokens = _lines([
+        ("SHOP SDN BHD", 50),
+        ("STAT-BUY 2@RM 13 -2.98", 554),
+        ("TOTAL RM INCL. OF GST 30.10", 602),
+        ("CASH -40.10", 626),
+        ("CHANGE 10.00", 649),
+        ("TOTAL SAVINGS -2.98", 816),
+    ])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["total"] == "30.10"
+
+
+def test_date_with_month_name_and_slashes():
+    tokens = _lines([("SHOP SDN BHD", 50), ("DATE: 02/JAN/2017 10:15", 200)])
+    assert AdvancedRegexExtractor.extract_fields(tokens)["date"] == "02/JAN/2017"
+
+
+def test_paddleocr_v2_and_v3_results_give_same_tokens():
+    from src.paddle_ocr_engine import PaddleOCREngine
+
+    polys = [
+        [[10, 10], [200, 10], [200, 40], [10, 40]],
+        [[10, 300], [80, 300], [80, 330], [10, 330]],
+        [[150, 302], [200, 302], [200, 330], [150, 330]],
+    ]
+    texts = ["ACME STORE SDN BHD", "TOTAL", "12.50"]
+    v2 = [[[p, (t, 0.9)] for p, t in zip(polys, texts)]]
+    v3 = [{"rec_texts": texts, "rec_scores": [0.9] * 3, "rec_polys": [np.array(p) for p in polys]}]
+
+    tok2 = PaddleOCREngine.to_tokens(PaddleOCREngine.parse_results(v2), 250, 400)
+    tok3 = PaddleOCREngine.to_tokens(PaddleOCREngine.parse_results(v3), 250, 400)
+    assert [(t.text, t.box) for t in tok2] == [(t.text, t.box) for t in tok3]
+    # "TOTAL" and "12.50" are separate boxes on the same row and must be paired
+    assert AdvancedRegexExtractor.extract_fields(tok3)["total"] == "12.50"
+
+
 if __name__ == "__main__":
     test_preprocessing_synthetic_image()
     test_advanced_regex_extraction()

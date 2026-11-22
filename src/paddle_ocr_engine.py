@@ -27,17 +27,70 @@ class PaddleOCREngine:
     def _init_ocr(self):
         if self._ocr is None:
             try:
+                import paddleocr
                 from paddleocr import PaddleOCR
-                # PaddleOCR 2.x/3.x argument compatibility
-                try:
-                    self._ocr = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang, use_gpu=self.use_gpu)
-                except TypeError:
-                    # In newer PaddleOCR/PaddleX versions
-                    self._ocr = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang)
             except ImportError as e:
                 raise ImportError(
                     "PaddleOCR is not installed. Please install via: pip install paddlepaddle paddleocr"
                 ) from e
+
+            self._is_v2 = str(getattr(paddleocr, "__version__", "2")).startswith("2")
+            if self._is_v2:
+                try:
+                    self._ocr = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang,
+                                          use_gpu=self.use_gpu, show_log=False)
+                except TypeError:
+                    self._ocr = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang)
+            else:
+                # PaddleOCR 3.x: skip the whole-page orientation / unwarping models,
+                # our own preprocessing already deskews the receipt.
+                self._ocr = PaddleOCR(
+                    lang=self.lang,
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=self.use_angle_cls,
+                )
+
+    def _run_ocr(self, image: np.ndarray) -> List[Tuple[Any, str, float]]:
+        """Run OCR and return [(polygon, text, confidence), ...] for either PaddleOCR 2.x or 3.x."""
+        if self._is_v2:
+            results = self._ocr.ocr(image, cls=self.use_angle_cls)
+        else:
+            results = self._ocr.predict(image)
+        return self.parse_results(results)
+
+    @staticmethod
+    def parse_results(results: Any) -> List[Tuple[Any, str, float]]:
+        """
+        Convert raw PaddleOCR output into [(polygon, text, confidence), ...].
+        - 2.x: [[ [poly, (text, conf)], ... ]]  (one list per page)
+        - 3.x: [ {"rec_texts": [...], "rec_scores": [...], "rec_polys": [...]}, ... ]
+        """
+        items: List[Tuple[Any, str, float]] = []
+        if not results:
+            return items
+        page = results[0]
+        if page is None:
+            return items
+
+        # 3.x result object (dict-like)
+        try:
+            texts = page["rec_texts"]
+            scores = page["rec_scores"]
+            polys = page["rec_polys"] if "rec_polys" in page else page["dt_polys"]
+            for poly, text, conf in zip(polys, texts, scores):
+                items.append((np.asarray(poly).tolist(), str(text), float(conf)))
+            return items
+        except (KeyError, TypeError, IndexError):
+            pass
+
+        # 2.x nested lists
+        for line in page:
+            if not line or len(line) < 2:
+                continue
+            poly, (text, conf) = line
+            items.append((poly, str(text), float(conf)))
+        return items
 
     def extract(self, image: np.ndarray) -> List[OCRToken]:
         """
@@ -57,22 +110,13 @@ class PaddleOCREngine:
         if h == 0 or w == 0:
             return []
 
-        # Run OCR inference
-        results = self._ocr.ocr(img_to_run, cls=self.use_angle_cls)
+        return self.to_tokens(self._run_ocr(img_to_run), w, h)
 
+    @staticmethod
+    def to_tokens(items: List[Tuple[Any, str, float]], w: int, h: int) -> List[OCRToken]:
+        """Polygons in pixels -> OCRTokens with boxes normalized to [0, 1000]."""
         tokens: List[OCRToken] = []
-
-        if not results or results[0] is None:
-            return tokens
-
-        # PaddleOCR returns a list of results per page; page 0 is results[0]
-        page_results = results[0] if len(results) > 0 else []
-
-        for line in page_results:
-            if not line or len(line) < 2:
-                continue
-
-            poly, (text, conf) = line
+        for poly, text, conf in items:
             if not text or not str(text).strip():
                 continue
 
@@ -91,13 +135,12 @@ class PaddleOCREngine:
             norm_x1 = min(1000, max(0, int(round((x_max / w) * 1000))))
             norm_y1 = min(1000, max(0, int(round((y_max / h) * 1000))))
 
-            token = OCRToken(
+            tokens.append(OCRToken(
                 text=str(text).strip(),
                 box=[norm_x0, norm_y0, norm_x1, norm_y1],
                 confidence=float(conf),
                 raw_box=poly,
-            )
-            tokens.append(token)
+            ))
 
         # Sort tokens naturally in top-to-bottom, left-to-right order
         tokens.sort(key=lambda t: (t.y0, t.x0))

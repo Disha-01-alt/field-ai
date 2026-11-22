@@ -116,8 +116,37 @@ class AdvancedRegexExtractor:
         "credit invoice", "debit note", "order slip", "kitchen slip",
     }
 
+    # Lines that are never the merchant name, e.g. "TQ FOR SHOPPING WITH ...",
+    # "(CO. NO. 123456-X)", "GST REG NO: ...", web addresses.
+    COMPANY_NOISE_PATTERNS = [
+        r"^\W*(tq|thank|thanks|welcome)\b",
+        r"\bshopping with\b",
+        r"^\W*(co|company|roc|br|reg|gst|sst)\b[\s\.]*(reg|no|id|#)",
+        r"www\.|\.com\b|https?:",
+    ]
+
+    # Company registration number stuck to the end of a name, e.g.
+    # "AEON CO. (M) BHD (126926-H)", "... S/B 273500-U (KSB)", "(CO.NO. 1208604-T)".
+    REG_NO_TAIL = re.compile(
+        r"[\s,]*[\(\[]?\s*"
+        r"(?:(?:co(?:mpany)?|reg|roc|br)[\s\.]*(?:reg[\s\.]*)?(?:no|#)?[\s\.:]*)?"
+        r"[a-z]{0,3}\d{4,}(?:[\s\-]*[a-z])?\s*[\)\]]?"
+        r"(?:\s*\([a-z]{2,4}\))?[\s,.]*$",
+        re.IGNORECASE,
+    )
+
+    # Words that start the transaction part of a receipt. A name found below
+    # these is usually the customer / bill-to name, not the merchant.
+    BODY_START_PATTERN = re.compile(
+        r"\b(date|tarikh|inv(?:oice)?\s*(?:no|#)|receipt\s*(?:no|#)|bill\s*(?:no|#)|"
+        r"slip\s*no|cashier|table|terminal|counter|doc\s*no)\b"
+        r"|\b\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\b",
+        re.IGNORECASE,
+    )
+
     COMPANY_LEGAL_SUFFIXES = [
         r"\bsdn[\s\.]*bhd\b",
+        r"\bs/b\b",
         r"\bberhad\b",
         r"\bsdn\b",
         r"\bbhd\b",
@@ -148,7 +177,7 @@ class AdvancedRegexExtractor:
     ADDRESS_INDICATORS = [
         r"\bjalan\b", r"\bjln\b", r"\bstreet\b", r"\bst\b", r"\broad\b", r"\brd\b",
         r"\bavenue\b", r"\bave\b", r"\btaman\b", r"\bblok\b", r"\bblock\b",
-        r"\bno\.\s*\d+", r"\blot\s*\d+", r"\bunit\s*\d+", r"\blevel\s*\d+",
+        r"\bno\.?\s*\d+", r"\blorong\b", r"\bpersiaran\b", r"\bbandar\b", r"\bkg\.", r"\blot\s*\d+", r"\bunit\s*\d+", r"\blevel\s*\d+",
         r"\bfloor\b", r"\bflr\b", r"\bposkod\b", r"\bpostcode\b", r"\bpostal\b",
         r"\bkuala lumpur\b", r"\bselangor\b", r"\bpenang\b", r"\bjohor\b",
         r"\bmalaysia\b", r"\bsingapore\b", r"\btel\b", r"\bphone\b", r"\bfax\b",
@@ -173,6 +202,12 @@ class AdvancedRegexExtractor:
         "jumlah": 14,
         "jumlah besar": 18,
         "net total": 15,
+        "nett total": 16,
+        "net amount": 14,
+        "total after": 18,
+        "after adj": 18,
+        "rounded total": 18,
+        "total rounded": 18,
         "total nett": 15,
         "total (rm)": 16,
         "total (myr)": 16,
@@ -208,7 +243,29 @@ class AdvancedRegexExtractor:
         "tendered": 11,
         "unit price": 10,
         "price": 7,
+        "excluding": 14,
+        "exclusive": 14,
+        "excl": 14,
+        "saving": 14,
+        "savings": 14,
+        "you save": 14,
+        "deposit": 10,
+        "points": 10,
     }
+
+    TAX_WORDS = {"tax", "gst", "sst", "vat"}
+
+    # Start of the tax summary table printed under the total
+    # ("GST SUMMARY", "TAX CODE  %  AMT", "CODE % NET AMT GST TOTAL").
+    TAX_SUMMARY_PATTERN = re.compile(
+        r"\b(gst|tax|sst|vat)\s+summary\b|\btax\s*code\b|\bcode\s+%",
+        re.IGNORECASE,
+    )
+    # A row of that table, e.g. "SR 6 381.50 22.89", "S = GST @6%: 68.82", "T @ 6% 28.39".
+    TAX_ROW_PATTERN = re.compile(
+        r"^\s*(sr|zr|zrl|s|z|t|e|ze)\s*[=@:]?\s*(gst\s*)?@?\s*\d{1,2}(\.\d+)?\s*%?(\s|$)",
+        re.IGNORECASE,
+    )
 
     AMOUNT_REGEX = re.compile(
         r"(?:(?:rm|myr|sgd|usd|inr|eur|gbp)\s*|[$€£₹]\s*)?"
@@ -253,7 +310,7 @@ class AdvancedRegexExtractor:
             (re.compile(r"\b([0-3]?[0-9])[/.\-]([0-1]?[0-9])[/.\-](\d{2})\b"), "dmy_short"),
             # DD Mon YYYY (e.g. 15 Jan 2019)
             (re.compile(
-                r"\b([0-3]?[0-9])[\s\-\.]([a-zA-Z]{3,9})[\s\-\.]((?:20|19)?\d{2})\b",
+                r"\b([0-3]?[0-9])[\s\-\./]([a-zA-Z]{3,9})[\s\-\./]((?:20|19)?\d{2})\b",
                 re.IGNORECASE,
             ), "d_mon_y"),
             # Mon DD YYYY (e.g. Jan 15, 2019)
@@ -337,15 +394,36 @@ class AdvancedRegexExtractor:
     # -------------------------------------------------------------
 
     @classmethod
-    def _find_label_match(cls, text: str, label_dict: Dict[str, int]) -> int:
-        """Find max weight of matched whole-word label."""
+    def _find_label_match(cls, text: str, label_dict: Dict[str, int], ignore: Optional[set] = None) -> int:
+        """Find max weight of matched whole-word label (labels in `ignore` are skipped)."""
         lower = text.lower()
         best_weight = 0
         for label, weight in label_dict.items():
+            if ignore and label in ignore:
+                continue
             pattern = r"(?<![a-z0-9])" + re.escape(label) + r"(?![a-z0-9])"
             if re.search(pattern, lower):
                 best_weight = max(best_weight, weight)
         return best_weight
+
+    @classmethod
+    def _line_amounts(cls, text: str) -> List[Tuple[float, str, bool]]:
+        """All money amounts in a line as (value, 'x.xx', has_currency). Negative amounts are skipped."""
+        amounts = []
+        for match in cls.AMOUNT_REGEX.finditer(text):
+            # "-2.98", "- RM0.02" are discounts / rounding adjustments, never the total
+            if text[:match.start()].rstrip().endswith("-"):
+                continue
+            try:
+                val = float(match.group(1).replace(",", ""))
+            except ValueError:
+                continue
+            if val <= 0.0 or val > 500000.0:
+                continue
+            full_match = match.group(0).lower()
+            has_currency = any(curr in full_match for curr in ["rm", "myr", "$", "usd", "sgd", "inr"])
+            amounts.append((val, f"{val:.2f}", has_currency))
+        return amounts
 
     @classmethod
     def extract_total(cls, lines: List[OCRLine]) -> str:
@@ -356,34 +434,37 @@ class AdvancedRegexExtractor:
         if not lines:
             return ""
 
+        # Everything from the tax summary table downwards repeats sub-amounts
+        # (net, tax) next to the word TOTAL, so it must not win.
+        summary_start = len(lines)
+        for idx, line in enumerate(lines):
+            if cls.TAX_SUMMARY_PATTERN.search(line.text):
+                summary_start = idx
+                break
+
         candidates: List[Dict[str, Any]] = []
 
         # Step 1: Detect all monetary candidates across all lines
         for line_idx, line in enumerate(lines):
+            lower = line.text.lower()
+            # "Total incl. GST" / "GST included in total"
+            is_incl_tax = bool(re.search(r"\b(incl|inclusive|including)\b.*\b(tax|gst|sst|vat)\b", lower))
             line_pos_weight = cls._find_label_match(line.text, cls.TOTAL_POSITIVE_LABELS)
-            line_neg_weight = cls._find_label_match(line.text, cls.TOTAL_NEGATIVE_LABELS)
+            ignore = set()
+            if is_incl_tax:
+                ignore |= cls.TAX_WORDS        # "TOTAL INCL. GST" is the total, not a tax line
+            if line_pos_weight > 0:
+                ignore.add("cash")             # "CASH TOTAL ..." is still a total
+            line_neg_weight = cls._find_label_match(line.text, cls.TOTAL_NEGATIVE_LABELS, ignore)
+            if re.search(r"\bincluded in total\b", lower):
+                line_neg_weight = max(line_neg_weight, 14)   # the tax part of the total
+            has_own_label = line_pos_weight > 0 or line_neg_weight > 0
 
-            # Check if current line has "Total incl. Tax"
-            is_incl_tax = bool(re.search(r"\b(incl|inclusive|including)\b.*\b(tax|gst|sst)\b", line.text.lower()))
-
-            # Iterate over amounts in line
-            for match in cls.AMOUNT_REGEX.finditer(line.text):
-                raw_amt = match.group(1).replace(",", "")
-                try:
-                    val = float(raw_amt)
-                    if val <= 0.0 or val > 500000.0:
-                        continue
-                    formatted_val = f"{val:.2f}"
-                except ValueError:
-                    continue
-
-                full_match = match.group(0).lower()
-                has_currency = any(curr in full_match for curr in ["rm", "myr", "$", "usd", "sgd", "inr"])
-
+            for val, formatted_val, has_currency in cls._line_amounts(line.text):
                 score = 0.0
                 score += line_pos_weight * 2.0
                 score -= line_neg_weight * 2.5
-                if is_incl_tax:
+                if is_incl_tax and line_pos_weight > 0:
                     score += 5.0
 
                 if has_currency:
@@ -394,17 +475,20 @@ class AdvancedRegexExtractor:
                 if rel_y >= 0.5:
                     score += 4.0 * rel_y
 
-                # Spatial horizontal proximity: check preceding line or left-side tokens
-                # If label is in line above
-                if line_idx > 0:
+                # Amount printed on its own line: use the label on the line above
+                if line_idx > 0 and not has_own_label:
                     prev_line = lines[line_idx - 1]
                     prev_pos = cls._find_label_match(prev_line.text, cls.TOTAL_POSITIVE_LABELS)
                     prev_neg = cls._find_label_match(prev_line.text, cls.TOTAL_NEGATIVE_LABELS)
                     score += prev_pos * 1.2
                     score -= prev_neg * 1.5
 
+                if line_idx >= summary_start or cls.TAX_ROW_PATTERN.search(line.text):
+                    score -= 30.0
+
                 candidates.append({
                     "val": formatted_val,
+                    "num": val,
                     "score": score,
                     "line_idx": line_idx,
                     "y0": line.y0,
@@ -415,9 +499,10 @@ class AdvancedRegexExtractor:
         # Step 2: Spatial Multi-Column Pairing
         # Often 'TOTAL' is its own token box on the left, and amount is a separate token on the right
         for line_idx, line in enumerate(lines):
+            if line_idx >= summary_start:
+                break
             line_pos_weight = cls._find_label_match(line.text, cls.TOTAL_POSITIVE_LABELS)
             if line_pos_weight >= 10:
-                # Look for amounts in this line or right beside it horizontally
                 for cand in candidates:
                     # Same horizontal band (+/- 25 units in normalized height)
                     if abs(cand["y0"] - line.y0) <= 25:
@@ -433,11 +518,36 @@ class AdvancedRegexExtractor:
 
         # Sort by score descending, then by vertical position (lower on receipt wins ties)
         candidates.sort(key=lambda c: (c["score"], c["y0"]), reverse=True)
-        return candidates[0]["val"]
+        best = candidates[0]
+
+        # Step 3: Rounding. If a "ROUNDING" line follows the chosen total, the
+        # amount payable is the rounded one (e.g. 22.91 -> ROUNDING -0.01 -> 22.90).
+        i = best["line_idx"]
+        for j in range(i + 1, min(i + 4, summary_start, len(lines))):
+            if "round" not in lines[j].text.lower():
+                continue
+            for k in range(j, min(j + 3, summary_start, len(lines))):
+                for val, formatted_val, _ in cls._line_amounts(lines[k].text):
+                    if 0.0 < abs(val - best["num"]) <= 0.05:
+                        return formatted_val
+            break
+
+        return best["val"]
 
     # -------------------------------------------------------------
     # 3. COMPANY EXTRACTION (HEADER PROMINENCE & NOISE SUPPRESSION)
     # -------------------------------------------------------------
+
+    @classmethod
+    def clean_company_name(cls, text: str) -> str:
+        """Remove registration numbers glued to the end of a name: 'AEON CO. (M) BHD (126926-H)' -> 'AEON CO. (M) BHD'."""
+        cleaned = text.strip()
+        for _ in range(3):
+            new = cls.REG_NO_TAIL.sub("", cleaned).strip()
+            if new == cleaned:
+                break
+            cleaned = new
+        return cleaned.strip(" ,:;-")
 
     @classmethod
     def _is_company_noise(cls, text: str) -> bool:
@@ -450,19 +560,70 @@ class AdvancedRegexExtractor:
         for noise in cls.COMPANY_NOISE_EXACT:
             if norm == noise or norm.startswith(noise + " ") or norm.endswith(" " + noise):
                 return True
+        lower = text.lower().strip()
+        if any(re.search(pat, lower) for pat in cls.COMPANY_NOISE_PATTERNS):
+            return True
+        # Only a registration number, e.g. "(CO.NO. 1208604-T)" or "822737-X"
+        if sum(c.isalpha() for c in cls.clean_company_name(text)) < 3:
+            return True
         return False
 
     @classmethod
     def _is_address_line(cls, text: str) -> bool:
         """Check if line is part of a merchant postal address or contact info."""
         lower = text.lower()
-        matches = 0
+        # A 5-digit postcode or a comma-separated list ("19, JALAN KANCIL, OFF JALAN PUDU")
+        if re.search(r"(?<![\d\-])\d{5}(?![\d\-])", lower) and "," in lower:
+            return True
+        matches = 1 if lower.count(",") >= 2 else 0
         for pattern in cls.ADDRESS_INDICATORS:
             if re.search(pattern, lower):
                 matches += 1
                 if matches >= 2:
                     return True
         return False
+
+    @classmethod
+    def _has_legal_suffix(cls, text: str) -> bool:
+        lower = text.lower()
+        return any(re.search(pat, lower) for pat in cls.COMPANY_LEGAL_SUFFIXES)
+
+    @classmethod
+    def _is_name_continuation(cls, first: str, second: str) -> bool:
+        """
+        True when `second` finishes a merchant name started on `first`, e.g.
+        'POPULAR BOOK' + 'CO. (M) SDN BHD', 'HOME MASTER HARDWARE &' + 'ELECTRICAL',
+        'AIK HUAT HARDWARE ENTERPRISE (SETIA' + 'ALAM) SDN BHD'.
+        """
+        a = first.strip()
+        if a.endswith(("&", "-", ",")) or a.count("(") > a.count(")"):
+            return True
+        b = second.strip().lower()
+        # Next line starts with a legal suffix: "CO. (M) SDN BHD", "SDN BHD", "BHD."
+        first_word = re.split(r"[\s\(\)]+", b)[0] if b else ""
+        if first_word and cls._has_legal_suffix(first_word.rstrip(".,")):
+            return True
+        if first_word in ("(m)", "(m).") or b.startswith(("(m)", "& ")):
+            return True
+        return False
+
+    @classmethod
+    def _score_company(cls, text: str, height: float, rank: int, below_body: bool) -> float:
+        lower = text.lower()
+        score = 5.0
+        score += min(height / 10.0, 5.0)              # font height prominence
+        if text.isupper():
+            score += 2.0
+        if cls._has_legal_suffix(text):
+            score += 6.0
+        if any(term in lower for term in cls.COMPANY_BUSINESS_TERMS):
+            score += 3.0
+        score += max(0.0, 6.0 - 1.5 * rank)            # merchant name is printed first
+        if below_body:
+            score -= 8.0                               # below date / invoice no -> customer name
+        if re.search(r"\b(gst|roc|reg|co\s*no|table|cashier|invoice|bill)\b", lower):
+            score -= 4.0
+        return score
 
     @classmethod
     def extract_company(cls, lines: List[OCRLine]) -> str:
@@ -478,75 +639,42 @@ class AdvancedRegexExtractor:
         if not header_lines:
             header_lines = lines[:8]
 
-        candidates: List[Tuple[float, str]] = []
+        body_start = len(header_lines)
+        for idx, line in enumerate(header_lines):
+            if cls.BODY_START_PATTERN.search(line.text):
+                body_start = idx
+                break
 
+        def usable(text: str) -> bool:
+            return (not cls._is_company_noise(text)
+                    and not cls._is_address_line(text)
+                    and sum(c.isalpha() for c in text) >= 3)
+
+        candidates: List[Tuple[float, str]] = []
+        rank = 0
         for idx, line in enumerate(header_lines):
             text = line.text.strip()
-            lower = text.lower()
-
-            if cls._is_company_noise(text):
+            if not usable(text):
                 continue
+            below_body = idx > body_start
+            candidates.append((cls._score_company(text, line.height, rank, below_body), text))
 
-            if cls._is_address_line(text):
-                continue
-
-            # Must contain letters
-            letters = sum(c.isalpha() for c in text)
-            if letters < 3:
-                continue
-
-            score = 5.0
-
-            # Font height prominence
-            score += min(line.height / 10.0, 5.0)
-
-            # Uppercase bonus
-            if text.isupper():
-                score += 2.0
-
-            # Legal suffix bonus
-            has_legal_suffix = any(re.search(pat, lower) for pat in cls.COMPANY_LEGAL_SUFFIXES)
-            if has_legal_suffix:
-                score += 6.0
-
-            # Business category keyword bonus
-            has_biz_term = any(term in lower for term in cls.COMPANY_BUSINESS_TERMS)
-            if has_biz_term:
-                score += 3.0
-
-            # Positional factor: topmost lines preferred
-            score += (1.0 - (idx / max(len(header_lines), 1))) * 4.0
-
-            # Registration or numeric noise penalty
-            if re.search(r"\b(gst|roc|reg|co\s*no|table|cashier|invoice|bill)\b", lower):
-                score -= 4.0
-
-            candidates.append((score, text))
-
-        # Check multi-line candidates (e.g. Line 1: 'MAKASSAR FRESH MARKET', Line 2: 'SDN BHD')
-        for i in range(len(header_lines) - 1):
-            line_a = header_lines[i]
-            line_b = header_lines[i + 1]
-
-            text_a = line_a.text.strip()
-            text_b = line_b.text.strip()
-
-            if cls._is_company_noise(text_a) or cls._is_company_noise(text_b):
-                continue
-            if cls._is_address_line(text_a) or cls._is_address_line(text_b):
-                continue
-
-            # If second line contains a legal suffix, it strongly indicates multi-line continuation
-            has_suffix_b = any(re.search(pat, text_b.lower()) for pat in cls.COMPANY_LEGAL_SUFFIXES)
-            if has_suffix_b:
-                merged = f"{text_a} {text_b}"
-                candidates.append((15.0, merged))
+            # Name printed over two or three lines: join the following lines
+            merged, height = text, line.height
+            for nxt in header_lines[idx + 1: idx + 3]:
+                nxt_text = nxt.text.strip()
+                if not usable(nxt_text) or not cls._is_name_continuation(merged, nxt_text):
+                    break
+                merged = f"{merged} {nxt_text}"
+                height = max(height, nxt.height)
+                candidates.append((cls._score_company(merged, height, rank, below_body) + 3.0, merged))
+            rank += 1
 
         if not candidates:
             return ""
 
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return candidates[0][1]
+        candidates.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
+        return cls.clean_company_name(candidates[0][1])
 
     # -------------------------------------------------------------
     # 4. UNIFIED INTERFACE
